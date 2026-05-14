@@ -318,7 +318,7 @@ AddGame("Universal", 3392487150, function()
         Notification.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
         task.delay(3, function() Notification:Destroy() end)
 end)
-AddGame("Penablox HvH", 122764594952227, function() loadstring(game:HttpGet("https://raw.githubusercontent.com/123hoipopper13r6/NeverHit.lua/refs/heads/main/Game-Support/Penablox.lua"))() end)
+AddGame("Penablox HvH", 122764594952227, function() loadstring(game:HttpGet("https://raw.githubusercontent.com/rustycreations/verbose-fishstick/refs/heads/main/HackSense.gov-Penablox.lua"))() end)
 AddGame("Europhium HvH", 82638711520338, function()
         -- Indev
         local Notification = Instance.new("Message")
