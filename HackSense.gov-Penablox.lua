@@ -976,6 +976,66 @@ Fatality:Loader({ Name = "HACKSENSE.GOV", Duration = 3 });
 
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("LimoriaUI") and game:GetService("Players").LocalPlayer.PlayerGui.LimoriaUI.Window.Visible == true
 
+-- Shrink clickgui and make top bar draggable
+
+task.spawn(function()
+    local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+    local window = playerGui:WaitForChild("LimoriaUI"):WaitForChild("Window")
+
+    -- Shrink the window
+    local curSize = window.Size
+    window.Size = UDim2.new(0, math.floor(curSize.X.Offset * 0.78), 0, math.floor(curSize.Y.Offset * 0.78))
+
+    -- Find the top bar (first Frame child near the top of the window)
+    local topBar = nil
+    for _, child in pairs(window:GetChildren()) do
+        if child:IsA("Frame") and child.Size.Y.Offset > 5 and child.Size.Y.Offset < 60 and child.Position.Y.Offset < 10 then
+            topBar = child
+            break
+        end
+    end
+
+    -- Fallback: just grab the first Frame
+    if not topBar then
+        for _, child in pairs(window:GetChildren()) do
+            if child:IsA("Frame") then
+                topBar = child
+                break
+            end
+        end
+    end
+
+    -- Make the top bar draggable
+    if topBar then
+        local uis = game:GetService("UserInputService")
+        local dragging = false
+        local dragStart, startPos
+
+        topBar.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                dragStart = input.Position
+                startPos = window.Position
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                    end
+                end)
+            end
+        end)
+
+        uis.InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                local delta = input.Position - dragStart
+                window.Position = UDim2.new(
+                    startPos.X.Scale, startPos.X.Offset + delta.X,
+                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                )
+            end
+        end)
+    end
+end)
+
 -- load it
 
 Notification:Notify({
@@ -1053,7 +1113,7 @@ task.spawn(function()
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     if not dragging then
-                        -- It was a tap, not a drag — toggle menu
+                        -- It was a tap, not a drag â€” toggle menu
                         ToggleMenu()
                     end
                     dragging = false
