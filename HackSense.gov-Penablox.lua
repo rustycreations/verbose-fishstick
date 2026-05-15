@@ -908,20 +908,21 @@ task.spawn(function()
     local Root = char:WaitForChild("HumanoidRootPart")
 
     local isPeaking = false
-    local savedCF = Root.CFrame
-    local lastShotTime = 0
+    local prePeakCF = Root.CFrame -- continuously updated while NOT shooting
 
     RunService.Heartbeat:Connect(function()
-        if not getgenv().LagPeakEnabled then
-            isPeaking = false
-            return
-        end
-
         if not Root or not Root.Parent then
             char = plr.Character
             if char then Root = char:WaitForChild("HumanoidRootPart") end
             if not Root then return end
-            savedCF = Root.CFrame
+            prePeakCF = Root.CFrame
+            isPeaking = false
+            return
+        end
+
+        if not getgenv().LagPeakEnabled then
+            -- Keep saving position even when disabled so it's ready
+            prePeakCF = Root.CFrame
             isPeaking = false
             return
         end
@@ -931,20 +932,15 @@ task.spawn(function()
         local active = getgenv().LagPeakDuration and (now - shotTime < getgenv().LagPeakDuration)
 
         if active then
-            if not isPeaking then
-                -- Just started shooting - save current position as the "behind cover" position
-                savedCF = Root.CFrame
-                isPeaking = true
-            end
-            -- Choke: keep teleporting back to saved position so server sees you behind cover
+            -- Shooting: freeze at the pre-peak position (behind cover)
+            isPeaking = true
             pcall(function()
-                Root.CFrame = savedCF
+                Root.CFrame = prePeakCF
             end)
         else
-            if isPeaking then
-                -- Stopped shooting - release, let position update normally
-                isPeaking = false
-            end
+            -- Not shooting: continuously update saved position so it's always your "behind cover" spot
+            isPeaking = false
+            prePeakCF = Root.CFrame
         end
     end)
 
@@ -952,7 +948,7 @@ task.spawn(function()
         char = newChar
         Root = newChar:WaitForChild("HumanoidRootPart")
         isPeaking = false
-        savedCF = Root.CFrame
+        prePeakCF = Root.CFrame
     end)
 end)
 
