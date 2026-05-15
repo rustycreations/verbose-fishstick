@@ -747,6 +747,7 @@ task.spawn(function()
                 if getgenv().RageBotMethod == "Event Hook" and checkspecificfunction("hookfunction") then
                     local action = decryptstring(args[1])
                     if action == "Shoot" or action == "MeleeHit" then
+                        getgenv().LagPeakShotTime = os.clock()
 
                         local target = GetClosestPlayer()
 
@@ -885,13 +886,18 @@ task.spawn(function()
     end)
 end)
 
--- Fakelag: choke position updates for N ticks then teleport release
+-- LagPeak: choke position while shooting so enemies see you behind cover
+-- When game auto-shoots, freeze your server position (behind wall)
+-- After you stop shooting, release back to your actual peek position
 
-if not getgenv().FakelagEnabled then
-    getgenv().FakelagEnabled = false
+if not getgenv().LagPeakEnabled then
+    getgenv().LagPeakEnabled = false
 end
-if not getgenv().FakelagTicks then
-    getgenv().FakelagTicks = 14
+if not getgenv().LagPeakDuration then
+    getgenv().LagPeakDuration = 0.5
+end
+if not getgenv().LagPeakShotTime then
+    getgenv().LagPeakShotTime = 0
 end
 
 task.spawn(function()
@@ -901,12 +907,13 @@ task.spawn(function()
     local char = plr.Character or plr.CharacterAdded:Wait()
     local Root = char:WaitForChild("HumanoidRootPart")
 
-    local tickCount = 0
+    local isPeaking = false
     local savedCF = Root.CFrame
+    local lastShotTime = 0
 
     RunService.Heartbeat:Connect(function()
-        if not getgenv().FakelagEnabled then
-            tickCount = 0
+        if not getgenv().LagPeakEnabled then
+            isPeaking = false
             return
         end
 
@@ -915,28 +922,36 @@ task.spawn(function()
             if char then Root = char:WaitForChild("HumanoidRootPart") end
             if not Root then return end
             savedCF = Root.CFrame
-            tickCount = 0
+            isPeaking = false
+            return
         end
 
-        tickCount = tickCount + 1
+        local now = os.clock()
+        local shotTime = getgenv().LagPeakShotTime or 0
+        local active = getgenv().LagPeakDuration and (now - shotTime < getgenv().LagPeakDuration)
 
-        if tickCount >= (getgenv().FakelagTicks or 14) then
-            -- Release: let server see current position
-            savedCF = Root.CFrame
-            tickCount = 0
-        else
-            -- Choke: teleport back to saved position
-            -- AA's __newindex hook will add rotation on top, which is fine
+        if active then
+            if not isPeaking then
+                -- Just started shooting - save current position as the "behind cover" position
+                savedCF = Root.CFrame
+                isPeaking = true
+            end
+            -- Choke: keep teleporting back to saved position so server sees you behind cover
             pcall(function()
                 Root.CFrame = savedCF
             end)
+        else
+            if isPeaking then
+                -- Stopped shooting - release, let position update normally
+                isPeaking = false
+            end
         end
     end)
 
     plr.CharacterAdded:Connect(function(newChar)
         char = newChar
         Root = newChar:WaitForChild("HumanoidRootPart")
-        tickCount = 0
+        isPeaking = false
         savedCF = Root.CFrame
     end)
 end)
@@ -1442,24 +1457,23 @@ do
     })
 
     ExploitSect:AddToggle({
-        Name = "Fakelag",
-        Flag = "FakelagEnabled",
+        Name = "LagPeak",
+        Flag = "LagPeakEnabled",
         Risky = true,
-        Option = true,
         Callback = function(v)
-            getgenv().FakelagEnabled = v
+            getgenv().LagPeakEnabled = v
         end
     })
 
-    local fakelagToggle = ExploitSect:AddSlider({
-        Name = "Fakelag Ticks",
-        Flag = "FakelagTicks",
-        Default = 14,
-        Min = 2,
-        Max = 30,
-        Round = 0,
+    ExploitSect:AddSlider({
+        Name = "LagPeak Duration",
+        Flag = "LagPeakDuration",
+        Default = 0.5,
+        Min = 0.1,
+        Max = 2,
+        Round = 1,
         Callback = function(v)
-            getgenv().FakelagTicks = math.floor(v)
+            getgenv().LagPeakDuration = v
         end
     })
 
