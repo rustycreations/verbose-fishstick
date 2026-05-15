@@ -1564,18 +1564,17 @@ do
         end
     })
 
-    local fakelagToggleOption = ExploitSect:AddToggle({
+    ExploitSect:AddToggle({
         Name = "Fakelag",
         Flag = "FakelagEnabled",
         Risky = true,
-        Option = true,
         Callback = function(v)
             getgenv().FakelagEnabled = v
             hsUpdateFakelagButtonColor()
         end
     })
 
-    fakelagToggleOption.Option:AddSlider({
+    ExploitSect:AddSlider({
         Name = "Fakelag Ticks",
         Flag = "FakelagTicks",
         Default = 14,
@@ -1587,7 +1586,7 @@ do
         end
     })
 
-    fakelagToggleOption.Option:AddKeybind({
+    ExploitSect:AddKeybind({
         Name = "Fakelag Keybind",
         Flag = "FakelagKeybindUI",
         Default = Enum.KeyCode.None,
@@ -1596,8 +1595,8 @@ do
         end
     })
 
-    fakelagToggleOption.Option:AddToggle({
-        Name = "Mobile Mode",
+    ExploitSect:AddToggle({
+        Name = "Fakelag Mobile Mode",
         Flag = "FakelagMobileMode",
         Callback = function(v)
             getgenv().FakelagMobileMode = v
