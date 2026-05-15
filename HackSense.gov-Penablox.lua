@@ -478,18 +478,8 @@ end
 
 task.spawn(function()
     do
-        Notification:Notify({
-            Title = "HackSense.gov",
-            Content = 'Credits to hush for the "Divine.lua OLD" resolver.',
-            Duration = 10,
-            Icon = "bell"
-        })
-
-        -- divine old resolver (december, v 2.6.8 resolver. )
-        -- this old resolver is ass against static aa, but works good against jitter.
-        -- divine standalone resolver by hush / @mjzt on discord
+        -- HackSense Resolver
         -- for best results, turn off in game resolver
-        -- if youre going to use, credit me.
 
 
 
@@ -713,7 +703,7 @@ task.spawn(function()
 
 
         RunService.Heartbeat:Connect(function()
-            if not getgenv().CustomResolverEnabled or getgenv().CustomResolverMode ~= "Divine.lua OLD" then return end
+            if not getgenv().CustomResolverEnabled or getgenv().CustomResolverMode ~= "HackSense" then return end
 
             if not getgenv().DivineLuaCorrection then
                 return
@@ -1253,13 +1243,12 @@ do
     MainRage:AddDropdown({
         Name = "Resolver Mode",
         Flag = "CustomResolverMode",
-        --Values = {"HackSense","Divine.lua OLD","Legit","Custom"},
-        Values = {"Divine.lua OLD"},
+        Values = {"HackSense", "Divine"},
         Default = "None",
         Callback = function(v)
             getgenv().CustomResolverMode = v
 
-            if v == "Divine.lua OLD" then
+            if v == "HackSense" or v == "Divine" then
                 getgenv().DivineLuaCorrection = v
             else
                 getgenv().DivineLuaCorrection = false
@@ -1409,7 +1398,7 @@ do
     })
 
     ExtaSect:AddToggle({
-        Name = "Divine Lerp",
+        Name = "Lerp",
         Flag = "DivineLerpEnabled",
         Callback = function(v)
             getgenv().DivineLuaLERPEnabled = v
@@ -1417,7 +1406,7 @@ do
     })
 
     ExtaSect:AddSlider({
-        Name = "Divine Lerp",
+        Name = "Lerp",
         Flag = "DivineLerpSpeed",
         Default = 0.35,
         Min = 0,
@@ -1429,7 +1418,7 @@ do
     })
 
     ExtaSect:AddSlider({
-        Name = "Divine Bias",
+        Name = "Bias",
         Flag = "DivineBiasAngle",
         Default = math.rad(25),
         Min = 0,
