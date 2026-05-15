@@ -844,6 +844,103 @@ task.spawn(function()
     end)
 end)
 
+-- Auto-Stop: stop movement while shooting (holding left click)
+
+if not getgenv().AutoStopEnabled then
+    getgenv().AutoStopEnabled = false
+end
+
+task.spawn(function()
+    if not checkspecificfunction("require") then return end
+
+    local MoveModule = require(game:GetService("ReplicatedStorage"):WaitForChild("MovementHandler"))
+    local origPS = MoveModule.GetPlanarSpeed
+
+    local mouseHeld = false
+
+    local uis = game:GetService("UserInputService")
+    uis.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            mouseHeld = true
+        end
+    end)
+    uis.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            mouseHeld = false
+        end
+    end)
+
+    game:GetService("RunService").Heartbeat:Connect(function()
+        -- Don't interfere if RemoveVelocity is already on
+        if getgenv().RemoveVelocity then return end
+
+        if getgenv().AutoStopEnabled and mouseHeld then
+            MoveModule.GetPlanarSpeed = function() return 0 end
+        else
+            if MoveModule.GetPlanarSpeed ~= origPS then
+                MoveModule.GetPlanarSpeed = origPS
+            end
+        end
+    end)
+end)
+
+-- Fakelag: choke position updates for N ticks then teleport release
+
+if not getgenv().FakelagEnabled then
+    getgenv().FakelagEnabled = false
+end
+if not getgenv().FakelagTicks then
+    getgenv().FakelagTicks = 14
+end
+
+task.spawn(function()
+    local plr = game:GetService("Players").LocalPlayer
+    local RunService = game:GetService("RunService")
+
+    local char = plr.Character or plr.CharacterAdded:Wait()
+    local Root = char:WaitForChild("HumanoidRootPart")
+
+    local tickCount = 0
+    local savedCF = Root.CFrame
+
+    RunService.Heartbeat:Connect(function()
+        if not getgenv().FakelagEnabled then
+            tickCount = 0
+            return
+        end
+
+        if not Root or not Root.Parent then
+            char = plr.Character
+            if char then Root = char:WaitForChild("HumanoidRootPart") end
+            if not Root then return end
+            savedCF = Root.CFrame
+            tickCount = 0
+        end
+
+        tickCount = tickCount + 1
+
+        if tickCount >= (getgenv().FakelagTicks or 14) then
+            -- Release: let server see current position
+            savedCF = Root.CFrame
+            tickCount = 0
+        else
+            -- Choke: teleport back to saved position
+            -- AA's __newindex hook will add rotation on top, which is fine
+            pcall(function()
+                Root.CFrame = savedCF
+            end)
+        end
+    end)
+
+    plr.CharacterAdded:Connect(function(newChar)
+        char = newChar
+        Root = newChar:WaitForChild("HumanoidRootPart")
+        tickCount = 0
+        savedCF = Root.CFrame
+    end)
+end)
+
 task.spawn(function()
     local oldMathRandom
     oldMathRandom = hookfunction(math.random, function(...)
@@ -1102,7 +1199,7 @@ local function hsSetupDrag()
     end))
 end
 
--- Shrink the HACKSENSE.GOV title text to 75% of original size
+-- Shrink the HACKSENSE.GOV title text to 60% of original size
 local function hsShrinkTitle()
     local frame = findClickguiFrame()
     if not frame then return end
@@ -1331,6 +1428,37 @@ do
         Risky = true,
         Callback = function(v)
             getgenv().InfiniteAmmo = v
+        end
+    })
+
+    ExploitSect:AddToggle({
+        Name = "Auto-Stop",
+        Flag = "AutoStopEnabled",
+        Risky = true,
+        Callback = function(v)
+            getgenv().AutoStopEnabled = v
+        end
+    })
+
+    ExploitSect:AddToggle({
+        Name = "Fakelag",
+        Flag = "FakelagEnabled",
+        Risky = true,
+        Option = true,
+        Callback = function(v)
+            getgenv().FakelagEnabled = v
+        end
+    })
+
+    local fakelagToggle = ExploitSect:AddSlider({
+        Name = "Fakelag Ticks",
+        Flag = "FakelagTicks",
+        Default = 14,
+        Min = 2,
+        Max = 30,
+        Round = 0,
+        Callback = function(v)
+            getgenv().FakelagTicks = math.floor(v)
         end
     })
 
