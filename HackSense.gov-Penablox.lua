@@ -743,14 +743,14 @@ task.spawn(function()
         local oldFireServer
         oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, function(self, ...)
             local args = {...}
-            if tostring(self) == "MainEvent" then
-                local action = decryptstring(args[1])
+            if tostring(self) == "MainEvent" and type(args[1]) == "string" then
+                local ok, action = pcall(decryptstring, args[1])
                 -- Trigger Auto-Stop whenever the game shoots (regardless of RageBot)
-                if action == "Shoot" or action == "MeleeHit" then
+                if ok and (action == "Shoot" or action == "MeleeHit") then
                     getgenv().AutoStopShootTime = os.clock()
                 end
 
-                if getgenv().RageBotEnabled then
+                if getgenv().RageBotEnabled and ok then
                     if getgenv().RageBotMethod == "Event Hook" and checkspecificfunction("hookfunction") then
                         if action == "Shoot" or action == "MeleeHit" then
 
@@ -1305,7 +1305,7 @@ task.spawn(function()
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     if not dragging then
-                        -- It was a tap, not a drag — toggle menu
+                        -- It was a tap, not a drag â€” toggle menu
                         ToggleMenu()
                     end
                     dragging = false
@@ -2052,4 +2052,4 @@ while task.wait(1) do
     if getgenv().ImAnewOne == true then
         script:Destroy()
     end
-end
+    end
