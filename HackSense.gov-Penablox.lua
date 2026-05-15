@@ -1035,12 +1035,8 @@ Notification:Notify({
 
 local Window = Fatality.new({ Name = "HACKSENSE.GOV", Expire = "Free", Keybind = "NONE" });
 
--- === HackSense Clickgui Resize & Drag System ===
+-- === HackSense Clickgui Drag System ===
 
-local hsApplying = false
-local hsTargetX = 0
-local hsTargetY = 0
-local hsSizeHook = nil
 local hsDragConns = {}
 
 local function findClickguiFrame()
@@ -1060,69 +1056,8 @@ local function findClickguiFrame()
     return nil
 end
 
-local hsOriginalX = 0
-local hsOriginalY = 0
-local hsOrigTextSizes = setmetatable({}, {__mode = "k"}) -- weak table: stores original TextSize per element
-
-local function hsApplyResize()
-    if hsApplying then return end
-    hsApplying = true
-
-    local frame = findClickguiFrame()
-    if not frame then hsApplying = false return end
-
-    local curSize = frame.Size
-
-    -- Store the original (full) Fatality size on first run
-    if hsOriginalX == 0 then
-        hsOriginalX = curSize.X.Offset
-        hsOriginalY = curSize.Y.Offset
-    end
-
-    -- Target is always 65% of the original full size
-    local targetX = math.floor(hsOriginalX * 0.65)
-    local targetY = math.floor(hsOriginalY * 0.65)
-    hsTargetX = targetX
-    hsTargetY = targetY
-
-    -- Only resize if not already at target
-    if math.abs(curSize.X.Offset - targetX) > 5 or math.abs(curSize.Y.Offset - targetY) > 5 then
-        frame.Size = UDim2.new(0, targetX, 0, targetY)
-    end
-
-    -- Scale down all text to fit the smaller window.
-    -- Uses a weak table to remember each element's ORIGINAL TextSize so we
-    -- always scale from the original value, never from an already-scaled one.
-    -- This is safe across Fatality resets: if Fatality recreates elements,
-    -- the weak table auto-cleans stale entries. If it just resets properties,
-    -- we re-apply from the stored original.
-    -- DO NOT touch TextScaled, RichText, or TextWrapped - Fatality manages those.
-    for _, desc in pairs(frame:GetDescendants()) do
-        if desc:IsA("TextLabel") or desc:IsA("TextButton") then
-            if not hsOrigTextSizes[desc] then
-                hsOrigTextSizes[desc] = desc.TextSize -- store original on first encounter
-            end
-            local origSize = hsOrigTextSizes[desc]
-            if origSize and origSize > 8 then
-                desc.TextSize = math.max(8, math.floor(origSize * 0.75))
-            end
-        end
-    end
-
-    -- Hook Size changes to catch Fatality resetting (only once)
-    if not hsSizeHook or not hsSizeHook.Connected then
-        hsSizeHook = frame:GetPropertyChangedSignal("Size"):Connect(function()
-            if hsApplying then return end
-            task.wait(0.3)
-            hsApplyResize()
-        end)
-    end
-
-    hsApplying = false
-end
-
 local function hsSetupDrag()
-    -- Clean up old drag connections only
+    -- Clean up old drag connections
     for _, conn in pairs(hsDragConns) do
         if conn and typeof(conn) == "RBXScriptConnection" and conn.Connected then
             conn:Disconnect()
@@ -1171,14 +1106,13 @@ local function hsSetupDrag()
     end))
 end
 
--- Apply on first load (wait for Fatality to fully render)
+-- Apply drag on first load (wait for Fatality to fully render)
 task.spawn(function()
     task.wait(1)
-    hsApplyResize()
     hsSetupDrag()
 end)
 
--- Toggle with aggressive re-apply on reopen
+-- Toggle with drag re-apply on reopen
 task.spawn(function()
     local uis = game:GetService("UserInputService")
     getgenv().OpenKey = Enum.KeyCode.Insert
@@ -1188,12 +1122,7 @@ task.spawn(function()
         Window:SetVisible(showing)
         if showing then
             task.spawn(function()
-                task.wait(0.2)
-                hsApplyResize()
                 task.wait(0.3)
-                hsApplyResize()
-                task.wait(0.5)
-                hsApplyResize()
                 hsSetupDrag()
             end)
         end
