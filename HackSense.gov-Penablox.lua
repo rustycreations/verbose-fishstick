@@ -1060,9 +1060,9 @@ task.spawn(function()
     end
     
     if clickguiFrame then
-        -- Shrink to 78%
+        -- Shrink to 65%
         local curSize = clickguiFrame.Size
-        clickguiFrame.Size = UDim2.new(0, math.floor(curSize.X.Offset * 0.78), 0, math.floor(curSize.Y.Offset * 0.78))
+        clickguiFrame.Size = UDim2.new(0, math.floor(curSize.X.Offset * 0.65), 0, math.floor(curSize.Y.Offset * 0.65))
         
         -- Find the Header (40px tall Frame at top of the window)
         local header = nil
@@ -1070,6 +1070,27 @@ task.spawn(function()
             if child:IsA("Frame") and child.Size.Y.Offset >= 35 and child.Size.Y.Offset <= 50 and child.Position.Y.Offset == 0 then
                 header = child
                 break
+            end
+        end
+        
+        -- Resize bar elements (header children) to fit the smaller window
+        if header then
+            for _, barChild in pairs(header:GetChildren()) do
+                if barChild:IsA("TextLabel") or barChild:IsA("TextButton") then
+                    -- Shrink text sizes in the header bar
+                    if barChild.TextSize and barChild.TextSize > 10 then
+                        barChild.TextSize = math.floor(barChild.TextSize * 0.75)
+                    end
+                    -- Tighten padding on text positions
+                    if barChild:IsA("TextLabel") and barChild.Size.X.Scale == 0 then
+                        barChild.Size = UDim2.new(0, math.floor(barChild.Size.X.Offset * 0.75), barChild.Size.Y.Scale, barChild.Size.Y.Offset)
+                    end
+                end
+                if barChild:IsA("ImageButton") then
+                    if barChild.Size.X.Offset > 12 then
+                        barChild.Size = UDim2.new(0, math.floor(barChild.Size.X.Offset * 0.75), 0, math.floor(barChild.Size.Y.Offset * 0.75))
+                    end
+                end
             end
         end
         
@@ -1238,7 +1259,7 @@ do
     MainRage:AddDropdown({
         Name = "Resolver Mode",
         Flag = "CustomResolverMode",
-        --Values = {"NeverHit","Divine.lua OLD","Legit","Custom"},
+        --Values = {"HackSense","Divine.lua OLD","Legit","Custom"},
         Values = {"Divine.lua OLD"},
         Default = "None",
         Callback = function(v)
@@ -1677,7 +1698,7 @@ do
         Name = "GitHub",
         Callback = function()
             local s,f = pcall(function()
-                setclipboard("https://github.com/123hoipopper13r6/NeverHit.lua")
+                setclipboard("https://github.com/rustycreations/verbose-fishstick")
 
                 Notification:Notify({
                     Title = "HackSense.gov",
@@ -1688,7 +1709,7 @@ do
             if not s then
                 Notification:Notify({
                     Title = "Error",
-                    Content = "Failed to copy to clipboard, get it manually: https://github.com/123hoipopper13r6/NeverHit.lua",
+                    Content = "Failed to copy to clipboard, get it manually: https://github.com/rustycreations/verbose-fishstick",
                     Icon = "bell"
                 })
             end
@@ -1713,7 +1734,7 @@ do
         Name = "Discord Server",
         Callback = function()
             local s,f = pcall(function()
-                setclipboard("https://discord.gg/sMv9YeXbYR")
+                setclipboard("https://discord.gg/m58GHehumC")
 
                 Notification:Notify({
                     Title = "HackSense.gov",
@@ -1724,7 +1745,7 @@ do
             if not s then
                 Notification:Notify({
                     Title = "Error",
-                    Content = "Failed to copy to clipboard, get it manually: https://discord.gg/sMv9YeXbYR",
+                    Content = "Failed to copy to clipboard, get it manually: https://discord.gg/m58GHehumC",
                     Icon = "bell"
                 })
             end
