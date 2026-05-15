@@ -970,71 +970,60 @@ end)
 
 -- ui
 
+-- Helper: snapshot current CoreGui children (also checks gethui() if available)
+local function snapshotGui()
+    local snap = {}
+    local function scan(parent)
+        for _, v in pairs(parent:GetChildren()) do
+            if v:IsA("ScreenGui") then snap[v] = true end
+        end
+    end
+    scan(game:GetService("CoreGui"))
+    pcall(function() local h = gethui(); if h then scan(h) end end)
+    return snap
+end
+
+-- Helper: find new ScreenGui added after snapshot, return its main Frame
+local function findNewMainFrame(preSnapshot)
+    local locations = {game:GetService("CoreGui")}
+    pcall(function() local h = gethui(); if h then table.insert(locations, h) end end)
+    for _, loc in ipairs(locations) do
+        for _, v in pairs(loc:GetChildren()) do
+            if not preSnapshot[v] and v:IsA("ScreenGui") then
+                for _, frame in pairs(v:GetChildren()) do
+                    if frame:IsA("Frame") and frame.Size.X.Offset > 200 and frame.Size.Y.Offset > 200 then
+                        return frame
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- Shrink the loading splash screen
+local preLoaderSnap = snapshotGui()
+
 Fatality:Loader({ Name = "HACKSENSE.GOV", Duration = 3 });
+
+task.spawn(function()
+    local loaderFrame = findNewMainFrame(preLoaderSnap)
+    if loaderFrame then
+        -- Shrink all large frames/images inside the loader
+        for _, desc in pairs(loaderFrame.Parent:GetDescendants()) do
+            if (desc:IsA("Frame") or desc:IsA("ImageLabel")) and desc.Size.X.Offset > 100 and desc.Size.Y.Offset > 100 then
+                desc.Size = UDim2.new(0, math.floor(desc.Size.X.Offset * 0.65), 0, math.floor(desc.Size.Y.Offset * 0.65))
+            end
+            if desc:IsA("TextLabel") and desc.TextSize > 14 then
+                desc.TextSize = math.floor(desc.TextSize * 0.65)
+            end
+        end
+    end
+end)
 
 -- wait until the player's gui is visible
 
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("LimoriaUI") and game:GetService("Players").LocalPlayer.PlayerGui.LimoriaUI.Window.Visible == true
-
--- Shrink clickgui and make top bar draggable
-
-task.spawn(function()
-    local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-    local window = playerGui:WaitForChild("LimoriaUI"):WaitForChild("Window")
-
-    -- Shrink the window
-    local curSize = window.Size
-    window.Size = UDim2.new(0, math.floor(curSize.X.Offset * 0.78), 0, math.floor(curSize.Y.Offset * 0.78))
-
-    -- Find the top bar (first Frame child near the top of the window)
-    local topBar = nil
-    for _, child in pairs(window:GetChildren()) do
-        if child:IsA("Frame") and child.Size.Y.Offset > 5 and child.Size.Y.Offset < 60 and child.Position.Y.Offset < 10 then
-            topBar = child
-            break
-        end
-    end
-
-    -- Fallback: just grab the first Frame
-    if not topBar then
-        for _, child in pairs(window:GetChildren()) do
-            if child:IsA("Frame") then
-                topBar = child
-                break
-            end
-        end
-    end
-
-    -- Make the top bar draggable
-    if topBar then
-        local uis = game:GetService("UserInputService")
-        local dragging = false
-        local dragStart, startPos
-
-        topBar.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                dragging = true
-                dragStart = input.Position
-                startPos = window.Position
-                input.Changed:Connect(function()
-                    if input.UserInputState == Enum.UserInputState.End then
-                        dragging = false
-                    end
-                end)
-            end
-        end)
-
-        uis.InputChanged:Connect(function(input)
-            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                local delta = input.Position - dragStart
-                window.Position = UDim2.new(
-                    startPos.X.Scale, startPos.X.Offset + delta.X,
-                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
-                )
-            end
-        end)
-    end
-end)
 
 -- load it
 
@@ -1045,6 +1034,76 @@ Notification:Notify({
 })
 
 local Window = Fatality.new({ Name = "HACKSENSE.GOV", Expire = "Free", Keybind = "NONE" });
+
+-- Shrink the HackSense clickgui and make top bar draggable
+task.spawn(function()
+    task.wait(0.5) -- wait for the Fatality window to fully render
+    local preWindowSnap = {} -- we already know the loader was the last new one, so search for any new ScreenGui with a large frame
+    local locations = {game:GetService("CoreGui")}
+    pcall(function() local h = gethui(); if h then table.insert(locations, h) end end)
+    
+    -- Find the Fatality clickgui (newest ScreenGui with a large Frame child)
+    local clickguiFrame = nil
+    local clickguiScreen = nil
+    for _, loc in ipairs(locations) do
+        for _, v in pairs(loc:GetChildren()) do
+            if v:IsA("ScreenGui") then
+                for _, frame in pairs(v:GetChildren()) do
+                    if frame:IsA("Frame") and frame.Size.X.Offset > 300 and frame.Size.Y.Offset > 300 then
+                        clickguiFrame = frame
+                        clickguiScreen = v
+                        -- Found it, don't break yet â€” there might be loader still around, take the biggest one
+                    end
+                end
+            end
+        end
+    end
+    
+    if clickguiFrame then
+        -- Shrink to 78%
+        local curSize = clickguiFrame.Size
+        clickguiFrame.Size = UDim2.new(0, math.floor(curSize.X.Offset * 0.78), 0, math.floor(curSize.Y.Offset * 0.78))
+        
+        -- Find the Header (40px tall Frame at top of the window)
+        local header = nil
+        for _, child in pairs(clickguiFrame:GetChildren()) do
+            if child:IsA("Frame") and child.Size.Y.Offset >= 35 and child.Size.Y.Offset <= 50 and child.Position.Y.Offset == 0 then
+                header = child
+                break
+            end
+        end
+        
+        -- Make the header draggable (top bar only)
+        if header then
+            local uis = game:GetService("UserInputService")
+            local dragging = false
+            local dragStart, startPos
+            
+            header.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    dragging = true
+                    dragStart = input.Position
+                    startPos = clickguiFrame.Position
+                    input.Changed:Connect(function()
+                        if input.UserInputState == Enum.UserInputState.End then
+                            dragging = false
+                        end
+                    end)
+                end
+            end)
+            
+            uis.InputChanged:Connect(function(input)
+                if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                    local delta = input.Position - dragStart
+                    clickguiFrame.Position = UDim2.new(
+                        startPos.X.Scale, startPos.X.Offset + delta.X,
+                        startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                    )
+                end
+            end)
+        end
+    end
+end)
 
 task.spawn(function()
     local uis = game:GetService("UserInputService")
