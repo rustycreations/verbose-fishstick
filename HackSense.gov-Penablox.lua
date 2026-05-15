@@ -887,8 +887,8 @@ task.spawn(function()
 end)
 
 -- LagPeak: choke position while shooting so enemies see you behind cover
--- When game auto-shoots, freeze your server position (behind wall)
--- After you stop shooting, release back to your actual peek position
+-- Uses a rolling buffer to grab your position from ~150ms BEFORE the shot
+-- so when you peek around a wall and the game auto-shoots, enemies see you behind cover
 
 if not getgenv().LagPeakEnabled then
     getgenv().LagPeakEnabled = false
@@ -899,6 +899,9 @@ end
 if not getgenv().LagPeakShotTime then
     getgenv().LagPeakShotTime = 0
 end
+if not getgenv().LagPeakBacktime then
+    getgenv().LagPeakBacktime = 0.15
+end
 
 task.spawn(function()
     local plr = game:GetService("Players").LocalPlayer
@@ -908,7 +911,25 @@ task.spawn(function()
     local Root = char:WaitForChild("HumanoidRootPart")
 
     local isPeaking = false
-    local prePeakCF = Root.CFrame -- continuously updated while NOT shooting
+    local prePeakCF = Root.CFrame
+
+    -- Rolling buffer: stores {CFrame, time} pairs every heartbeat
+    -- When a shot fires, we grab a position from Backtime seconds ago
+    -- (before you fully peeked around the wall)
+    local posBuffer = {}
+
+    local function getDelayedCF()
+        local now = os.clock()
+        local targetTime = now - (getgenv().LagPeakBacktime or 0.15)
+        local best = nil
+        for i = #posBuffer, 1, -1 do
+            if posBuffer[i].time <= targetTime then
+                best = posBuffer[i].cf
+                break
+            end
+        end
+        return best or prePeakCF
+    end
 
     RunService.Heartbeat:Connect(function()
         if not Root or not Root.Parent then
@@ -917,30 +938,43 @@ task.spawn(function()
             if not Root then return end
             prePeakCF = Root.CFrame
             isPeaking = false
-            return
-        end
-
-        if not getgenv().LagPeakEnabled then
-            -- Keep saving position even when disabled so it's ready
-            prePeakCF = Root.CFrame
-            isPeaking = false
+            posBuffer = {}
             return
         end
 
         local now = os.clock()
+        local currentCF = Root.CFrame
+
+        -- Always push current position + time into the buffer
+        table.insert(posBuffer, {cf = currentCF, time = now})
+        -- Trim entries older than 1 second to keep buffer small
+        while #posBuffer > 0 and now - posBuffer[1].time > 1 do
+            table.remove(posBuffer, 1)
+        end
+
+        if not getgenv().LagPeakEnabled then
+            prePeakCF = currentCF
+            isPeaking = false
+            return
+        end
+
         local shotTime = getgenv().LagPeakShotTime or 0
         local active = getgenv().LagPeakDuration and (now - shotTime < getgenv().LagPeakDuration)
 
         if active then
-            -- Shooting: freeze at the pre-peak position (behind cover)
-            isPeaking = true
+            -- Shooting: grab position from before the peek and lock to it
+            if not isPeaking then
+                -- First frame of shot detected - grab delayed position from buffer
+                prePeakCF = getDelayedCF()
+                isPeaking = true
+            end
             pcall(function()
                 Root.CFrame = prePeakCF
             end)
         else
-            -- Not shooting: continuously update saved position so it's always your "behind cover" spot
+            -- Not shooting: just track, don't lock
             isPeaking = false
-            prePeakCF = Root.CFrame
+            prePeakCF = currentCF
         end
     end)
 
@@ -949,6 +983,7 @@ task.spawn(function()
         Root = newChar:WaitForChild("HumanoidRootPart")
         isPeaking = false
         prePeakCF = Root.CFrame
+        posBuffer = {}
     end)
 end)
 
@@ -1470,6 +1505,18 @@ do
         Round = 1,
         Callback = function(v)
             getgenv().LagPeakDuration = v
+        end
+    })
+
+    ExploitSect:AddSlider({
+        Name = "LagPeak Backtime",
+        Flag = "LagPeakBacktime",
+        Default = 0.15,
+        Min = 0.05,
+        Max = 0.5,
+        Round = 2,
+        Callback = function(v)
+            getgenv().LagPeakBacktime = v
         end
     })
 
