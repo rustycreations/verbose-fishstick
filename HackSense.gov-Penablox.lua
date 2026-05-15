@@ -743,12 +743,18 @@ task.spawn(function()
         local oldFireServer
         oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, function(self, ...)
             local args = {...}
-            if tostring(self) == "MainEvent" and getgenv().RageBotEnabled then
-                if getgenv().RageBotMethod == "Event Hook" and checkspecificfunction("hookfunction") then
-                    local action = decryptstring(args[1])
-                    if action == "Shoot" or action == "MeleeHit" then
+            if tostring(self) == "MainEvent" then
+                local action = decryptstring(args[1])
+                -- Trigger Auto-Stop whenever the game shoots (regardless of RageBot)
+                if action == "Shoot" or action == "MeleeHit" then
+                    getgenv().AutoStopShootTime = os.clock()
+                end
 
-                        local target = GetClosestPlayer()
+                if getgenv().RageBotEnabled then
+                    if getgenv().RageBotMethod == "Event Hook" and checkspecificfunction("hookfunction") then
+                        if action == "Shoot" or action == "MeleeHit" then
+
+                            local target = GetClosestPlayer()
 
                         if target and target.Character and target.Character:FindFirstChild("Head") then
 
@@ -844,10 +850,13 @@ task.spawn(function()
     end)
 end)
 
--- Auto-Stop: stop movement while shooting (holding left click)
+-- Auto-Stop: stop movement when the game auto-shoots (no manual shooting)
 
 if not getgenv().AutoStopEnabled then
     getgenv().AutoStopEnabled = false
+end
+if not getgenv().AutoStopShootTime then
+    getgenv().AutoStopShootTime = 0
 end
 
 task.spawn(function()
@@ -856,26 +865,13 @@ task.spawn(function()
     local MoveModule = require(game:GetService("ReplicatedStorage"):WaitForChild("MovementHandler"))
     local origPS = MoveModule.GetPlanarSpeed
 
-    local mouseHeld = false
-
-    local uis = game:GetService("UserInputService")
-    uis.InputBegan:Connect(function(input, gp)
-        if gp then return end
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            mouseHeld = true
-        end
-    end)
-    uis.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            mouseHeld = false
-        end
-    end)
+    local AUTO_STOP_DURATION = 0.15 -- seconds to stay stopped after a shot
 
     game:GetService("RunService").Heartbeat:Connect(function()
         -- Don't interfere if RemoveVelocity is already on
         if getgenv().RemoveVelocity then return end
 
-        if getgenv().AutoStopEnabled and mouseHeld then
+        if getgenv().AutoStopEnabled and getgenv().AutoStopShootTime and os.clock() - getgenv().AutoStopShootTime < AUTO_STOP_DURATION then
             MoveModule.GetPlanarSpeed = function() return 0 end
         else
             if MoveModule.GetPlanarSpeed ~= origPS then
@@ -892,6 +888,12 @@ if not getgenv().FakelagEnabled then
 end
 if not getgenv().FakelagTicks then
     getgenv().FakelagTicks = 14
+end
+if not getgenv().FakelagKeybind then
+    getgenv().FakelagKeybind = Enum.KeyCode.None
+end
+if not getgenv().FakelagMobileMode then
+    getgenv().FakelagMobileMode = false
 end
 
 task.spawn(function()
@@ -1242,6 +1244,14 @@ task.spawn(function()
         if input.KeyCode == getgenv().OpenKey or input.KeyCode.Name == tostring(getgenv().OpenKey) then
             ToggleMenu()
         end
+
+        -- Fakelag keybind toggle
+        if getgenv().FakelagKeybind and getgenv().FakelagKeybind ~= Enum.KeyCode.None then
+            if input.KeyCode == getgenv().FakelagKeybind or input.KeyCode.Name == tostring(getgenv().FakelagKeybind) then
+                getgenv().FakelagEnabled = not getgenv().FakelagEnabled
+                hsUpdateFakelagButtonColor()
+            end
+        end
     end)
 end)
 
@@ -1295,7 +1305,7 @@ task.spawn(function()
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     if not dragging then
-                        -- It was a tap, not a drag â€” toggle menu
+                        -- It was a tap, not a drag — toggle menu
                         ToggleMenu()
                     end
                     dragging = false
@@ -1331,6 +1341,119 @@ task.spawn(function()
         end
     end)
 end)
+
+-- Fakelag Mobile Button
+
+getgenv().hsFakelagBtnGui = nil
+
+function hsCreateFakelagButton()
+    hsDestroyFakelagButton() -- clean up first
+
+    local CoreGui = game:GetService("CoreGui")
+    local UserInputService = game:GetService("UserInputService")
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "HackSenseFakelagButton"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = CoreGui
+    getgenv().hsFakelagBtnGui = screenGui
+
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Name = "ToggleBtn"
+    toggleBtn.Size = UDim2.new(0, 50, 0, 50)
+    toggleBtn.Position = UDim2.new(0, 10, 0.45, -25) -- slightly above the HS button
+    toggleBtn.BackgroundColor3 = getgenv().FakelagEnabled
+        and Color3.fromRGB(255, 80, 80) -- red when on
+        or Color3.fromRGB(80, 200, 120) -- green when off
+    toggleBtn.BorderSizePixel = 0
+    toggleBtn.Font = Enum.Font.GothamBold
+    toggleBtn.TextSize = 11
+    toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+    toggleBtn.Text = "FL"
+    toggleBtn.AutoButtonColor = true
+    toggleBtn.Parent = screenGui
+
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 12)
+    btnCorner.Parent = toggleBtn
+
+    local btnStroke = Instance.new("UIStroke")
+    btnStroke.Color = Color3.fromRGB(30, 30, 30)
+    btnStroke.Thickness = 2
+    btnStroke.Parent = toggleBtn
+
+    -- Make button draggable
+    local dragging = false
+    local dragStart, startPos
+
+    toggleBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+            dragStart = input.Position
+            startPos = toggleBtn.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    if not dragging then
+                        -- Tap = toggle fakelag
+                        getgenv().FakelagEnabled = not getgenv().FakelagEnabled
+                        toggleBtn.BackgroundColor3 = getgenv().FakelagEnabled
+                            and Color3.fromRGB(255, 80, 80)
+                            or Color3.fromRGB(80, 200, 120)
+                    end
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    toggleBtn.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            if dragStart then
+                local delta = input.Position - dragStart
+                if delta.Magnitude > 6 then
+                    dragging = true
+                end
+                if dragging then
+                    local newPos = UDim2.new(
+                        startPos.X.Scale, startPos.X.Offset + delta.X,
+                        startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                    )
+                    local absX = math.clamp(newPos.X.Offset, 0, workspace.CurrentCamera.ViewportSize.X - toggleBtn.AbsoluteSize.X)
+                    local absY = math.clamp(newPos.Y.Offset, 0, workspace.CurrentCamera.ViewportSize.Y - toggleBtn.AbsoluteSize.Y)
+                    toggleBtn.Position = UDim2.new(0, absX, 0, absY)
+                end
+            end
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragStart = nil
+        end
+    end)
+end
+
+function hsDestroyFakelagButton()
+    if getgenv().hsFakelagBtnGui then
+        pcall(function()
+            getgenv().hsFakelagBtnGui:Destroy()
+        end)
+        getgenv().hsFakelagBtnGui = nil
+    end
+end
+
+function hsUpdateFakelagButtonColor()
+    if getgenv().hsFakelagBtnGui then
+        local btn = getgenv().hsFakelagBtnGui:FindFirstChild("ToggleBtn")
+        if btn then
+            btn.BackgroundColor3 = getgenv().FakelagEnabled
+                and Color3.fromRGB(255, 80, 80)
+                or Color3.fromRGB(80, 200, 120)
+        end
+    end
+end
 
 local RageMenu = Window:AddMenu({ Name = "Rage", Icon = "skull" })
 local AntiAimMenu = Window:AddMenu({ Name = "Anti Aim", Icon = "shield" })
@@ -1440,17 +1563,18 @@ do
         end
     })
 
-    ExploitSect:AddToggle({
+    local fakelagToggleOption = ExploitSect:AddToggle({
         Name = "Fakelag",
         Flag = "FakelagEnabled",
         Risky = true,
         Option = true,
         Callback = function(v)
             getgenv().FakelagEnabled = v
+            hsUpdateFakelagButtonColor()
         end
     })
 
-    local fakelagToggle = ExploitSect:AddSlider({
+    fakelagToggleOption.Option:AddSlider({
         Name = "Fakelag Ticks",
         Flag = "FakelagTicks",
         Default = 14,
@@ -1459,6 +1583,28 @@ do
         Round = 0,
         Callback = function(v)
             getgenv().FakelagTicks = math.floor(v)
+        end
+    })
+
+    fakelagToggleOption.Option:AddKeybind({
+        Name = "Fakelag Keybind",
+        Flag = "FakelagKeybindUI",
+        Default = Enum.KeyCode.None,
+        Callback = function(v)
+            getgenv().FakelagKeybind = v
+        end
+    })
+
+    fakelagToggleOption.Option:AddToggle({
+        Name = "Mobile Mode",
+        Flag = "FakelagMobileMode",
+        Callback = function(v)
+            getgenv().FakelagMobileMode = v
+            if v then
+                hsCreateFakelagButton()
+            else
+                hsDestroyFakelagButton()
+            end
         end
     })
 
