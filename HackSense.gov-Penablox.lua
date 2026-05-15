@@ -1305,7 +1305,7 @@ task.spawn(function()
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     if not dragging then
-                        -- It was a tap, not a drag â€” toggle menu
+                        -- It was a tap, not a drag — toggle menu
                         ToggleMenu()
                     end
                     dragging = false
@@ -2052,4 +2052,4 @@ while task.wait(1) do
     if getgenv().ImAnewOne == true then
         script:Destroy()
     end
-    end
+end
