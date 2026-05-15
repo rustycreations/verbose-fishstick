@@ -886,8 +886,8 @@ task.spawn(function()
     end)
 end)
 
--- Speed: directly modify Humanoid.WalkSpeed for faster movement/bhop
--- (GetPlanarSpeed hook doesn't actually affect movement, so we use WalkSpeed instead)
+-- Speed: apply extra velocity in movement direction without touching WalkSpeed
+-- (WalkSpeed gets server-kicked, so we use physics-based speed boost instead)
 
 if not getgenv().SpeedEnabled then
     getgenv().SpeedEnabled = false
@@ -900,47 +900,34 @@ task.spawn(function()
     local plr = game:GetService("Players").LocalPlayer
     local RunService = game:GetService("RunService")
 
-    local function getHumanoid()
+    RunService.Heartbeat:Connect(function(dt)
+        if not getgenv().SpeedEnabled then return end
+
         local char = plr.Character
-        return char and char:FindFirstChildOfClass("Humanoid")
-    end
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hum or not hrp then return end
+        if not hum.Health or hum.Health <= 0 then return end
 
-    -- Save the base WalkSpeed the game sets
-    local baseWalkSpeed = 16
+        local moveDir = hum.MoveDirection
+        if moveDir.Magnitude < 0.01 then return end -- not moving
 
-    RunService.Heartbeat:Connect(function()
-        local hum = getHumanoid()
-        if not hum then return end
-
-        -- Capture the base speed when speed is off
-        if not getgenv().SpeedEnabled then
-            baseWalkSpeed = hum.WalkSpeed
-            return
-        end
-
-        -- Apply multiplier to base speed
+        -- Calculate extra velocity: boost = (multiplier - 1) * base walk speed * direction
+        -- Base walk speed is typically 16 in most games
+        local baseSpeed = 16
         local mult = getgenv().SpeedMultiplier or 1.5
-        local targetSpeed = math.floor(baseWalkSpeed * mult)
+        local extraSpeed = (mult - 1) * baseSpeed
 
-        -- Force WalkSpeed every frame (game might try to reset it)
-        if hum.WalkSpeed ~= targetSpeed then
-            pcall(function()
-                hum.WalkSpeed = targetSpeed
-            end)
-        end
-    end)
-
-    -- Also hook WalkSpeed __newindex to prevent the game from overriding it
-    local oldNewIndex
-    oldNewIndex = hookmetamethod(game, "__newindex", function(self, key, value)
-        if not checkcaller() and getgenv().SpeedEnabled then
-            local hum = getHumanoid()
-            if hum and self == hum and key == "WalkSpeed" then
-                local mult = getgenv().SpeedMultiplier or 1.5
-                value = math.floor(baseWalkSpeed * mult)
-            end
-        end
-        return oldNewIndex(self, key, value)
+        pcall(function()
+            local currentVel = hrp.AssemblyLinearVelocity
+            -- Add extra velocity in the movement direction (only on X/Z plane, preserve Y for jumping)
+            hrp.AssemblyLinearVelocity = Vector3.new(
+                currentVel.X + moveDir.X * extraSpeed,
+                currentVel.Y,
+                currentVel.Z + moveDir.Z * extraSpeed
+            )
+        end)
     end)
 end)
 
