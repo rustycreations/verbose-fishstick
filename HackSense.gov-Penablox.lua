@@ -1096,9 +1096,23 @@ local function hsSetupDrag()
     end))
 end
 
--- Apply drag on first load (wait for Fatality to fully render)
+-- Shrink the HACKSENSE.GOV title text to 75% of original size
+local function hsShrinkTitle()
+    local frame = findClickguiFrame()
+    if not frame then return end
+
+    for _, desc in pairs(frame:GetDescendants()) do
+        if desc:IsA("TextLabel") and desc.Text and desc.Text:find("HACKSENSE.GOV") then
+            desc.TextSize = math.max(8, math.floor(desc.TextSize * 0.75))
+            break -- only shrink the title, stop after first match
+        end
+    end
+end
+
+-- Apply drag + title shrink on first load (wait for Fatality to fully render)
 task.spawn(function()
     task.wait(1)
+    hsShrinkTitle()
     hsSetupDrag()
 end)
 
@@ -1113,6 +1127,7 @@ task.spawn(function()
         if showing then
             task.spawn(function()
                 task.wait(0.3)
+                hsShrinkTitle()
                 hsSetupDrag()
             end)
         end
