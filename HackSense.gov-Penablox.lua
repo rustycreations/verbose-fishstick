@@ -816,6 +816,7 @@ task.spawn(function()
                     end
                 end
             end
+            end  -- close MainEvent check
 
             return oldFireServer(self, unpack(args))
         end)
