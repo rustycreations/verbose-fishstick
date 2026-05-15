@@ -846,9 +846,16 @@ task.spawn(function()
 end)
 
 -- Auto-Stop: stop movement while shooting (holding left click)
+-- Speed: multiply planar speed for faster bhop/movement
 
 if not getgenv().AutoStopEnabled then
     getgenv().AutoStopEnabled = false
+end
+if not getgenv().SpeedEnabled then
+    getgenv().SpeedEnabled = false
+end
+if not getgenv().SpeedMultiplier then
+    getgenv().SpeedMultiplier = 1.5
 end
 
 task.spawn(function()
@@ -877,7 +884,12 @@ task.spawn(function()
         if getgenv().RemoveVelocity then return end
 
         if getgenv().AutoStopEnabled and mouseHeld then
+            -- Auto-Stop takes priority over Speed
             MoveModule.GetPlanarSpeed = function() return 0 end
+        elseif getgenv().SpeedEnabled then
+            -- Multiply original speed by the speed multiplier
+            local mult = getgenv().SpeedMultiplier or 1.5
+            MoveModule.GetPlanarSpeed = function() return origPS() * mult end
         else
             if MoveModule.GetPlanarSpeed ~= origPS then
                 MoveModule.GetPlanarSpeed = origPS
@@ -1825,6 +1837,27 @@ do
         Risky = true,
         Callback = function(v)
             getgenv().RemoveMathRandom = v
+        end
+    })
+
+    Exploits:AddToggle({
+        Name = "Speed",
+        Flag = "SpeedEnabled",
+        Risky = true,
+        Callback = function(v)
+            getgenv().SpeedEnabled = v
+        end
+    })
+
+    Exploits:AddSlider({
+        Name = "Speed Multiplier",
+        Flag = "SpeedMultiplier",
+        Default = 1.5,
+        Min = 1.1,
+        Max = 3,
+        Round = 1,
+        Callback = function(v)
+            getgenv().SpeedMultiplier = v
         end
     })
 
