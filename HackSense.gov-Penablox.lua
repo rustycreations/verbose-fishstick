@@ -1035,95 +1035,97 @@ Notification:Notify({
 
 local Window = Fatality.new({ Name = "HACKSENSE.GOV", Expire = "Free", Keybind = "NONE" });
 
--- Shrink the HackSense clickgui and make top bar draggable
-task.spawn(function()
-    task.wait(0.5) -- wait for the Fatality window to fully render
-    local preWindowSnap = {} -- we already know the loader was the last new one, so search for any new ScreenGui with a large frame
+-- === HackSense Clickgui Resize & Drag System ===
+-- Re-apply every time the window is reopened so size/drag persist
+
+local hsDragConns = {}
+
+local function cleanupDrag()
+    for _, conn in pairs(hsDragConns) do
+        if conn and typeof(conn) == "RBXScriptConnection" then
+            conn:Disconnect()
+        end
+    end
+    hsDragConns = {}
+end
+
+local function resizeAndDragClickgui()
     local locations = {game:GetService("CoreGui")}
     pcall(function() local h = gethui(); if h then table.insert(locations, h) end end)
-    
-    -- Find the Fatality clickgui (newest ScreenGui with a large Frame child)
+
+    -- Find the Fatality clickgui (ScreenGui with a large Frame child)
     local clickguiFrame = nil
-    local clickguiScreen = nil
     for _, loc in ipairs(locations) do
         for _, v in pairs(loc:GetChildren()) do
             if v:IsA("ScreenGui") then
                 for _, frame in pairs(v:GetChildren()) do
                     if frame:IsA("Frame") and frame.Size.X.Offset > 300 and frame.Size.Y.Offset > 300 then
                         clickguiFrame = frame
-                        clickguiScreen = v
-                        -- Found it, don't break yet â€” there might be loader still around, take the biggest one
                     end
                 end
             end
         end
     end
-    
-    if clickguiFrame then
-        -- Shrink to 65%
-        local curSize = clickguiFrame.Size
-        clickguiFrame.Size = UDim2.new(0, math.floor(curSize.X.Offset * 0.65), 0, math.floor(curSize.Y.Offset * 0.65))
-        
-        -- Find the Header (40px tall Frame at top of the window)
-        local header = nil
-        for _, child in pairs(clickguiFrame:GetChildren()) do
-            if child:IsA("Frame") and child.Size.Y.Offset >= 35 and child.Size.Y.Offset <= 50 and child.Position.Y.Offset == 0 then
-                header = child
-                break
-            end
-        end
-        
-        -- Resize bar elements (header children) to fit the smaller window
-        if header then
-            for _, barChild in pairs(header:GetChildren()) do
-                if barChild:IsA("TextLabel") or barChild:IsA("TextButton") then
-                    -- Shrink text sizes in the header bar
-                    if barChild.TextSize and barChild.TextSize > 10 then
-                        barChild.TextSize = math.floor(barChild.TextSize * 0.75)
-                    end
-                    -- Tighten padding on text positions
-                    if barChild:IsA("TextLabel") and barChild.Size.X.Scale == 0 then
-                        barChild.Size = UDim2.new(0, math.floor(barChild.Size.X.Offset * 0.75), barChild.Size.Y.Scale, barChild.Size.Y.Offset)
-                    end
-                end
-                if barChild:IsA("ImageButton") then
-                    if barChild.Size.X.Offset > 12 then
-                        barChild.Size = UDim2.new(0, math.floor(barChild.Size.X.Offset * 0.75), 0, math.floor(barChild.Size.Y.Offset * 0.75))
-                    end
-                end
-            end
-        end
-        
-        -- Make the header draggable (top bar only)
-        if header then
-            local uis = game:GetService("UserInputService")
-            local dragging = false
-            local dragStart, startPos
-            
-            header.InputBegan:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                    dragging = true
-                    dragStart = input.Position
-                    startPos = clickguiFrame.Position
-                    input.Changed:Connect(function()
-                        if input.UserInputState == Enum.UserInputState.End then
-                            dragging = false
-                        end
-                    end)
-                end
-            end)
-            
-            uis.InputChanged:Connect(function(input)
-                if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                    local delta = input.Position - dragStart
-                    clickguiFrame.Position = UDim2.new(
-                        startPos.X.Scale, startPos.X.Offset + delta.X,
-                        startPos.Y.Scale, startPos.Y.Offset + delta.Y
-                    )
-                end
-            end)
+
+    if not clickguiFrame then return end
+
+    -- Shrink the whole window to 65%
+    local curSize = clickguiFrame.Size
+    clickguiFrame.Size = UDim2.new(0, math.floor(curSize.X.Offset * 0.65), 0, math.floor(curSize.Y.Offset * 0.65))
+
+    -- Scale down ALL text inside so nothing overflows
+    for _, desc in pairs(clickguiFrame:GetDescendants()) do
+        if (desc:IsA("TextLabel") or desc:IsA("TextButton")) and desc.TextSize > 10 then
+            desc.TextSize = math.max(9, math.floor(desc.TextSize * 0.75))
         end
     end
+
+    -- Find the header bar (Frame at top, ~40px tall)
+    local header = nil
+    for _, child in pairs(clickguiFrame:GetChildren()) do
+        if child:IsA("Frame") and child.Size.Y.Offset >= 35 and child.Size.Y.Offset <= 50 and child.Position.Y.Offset == 0 then
+            header = child
+            break
+        end
+    end
+
+    -- Clean up old drag connections and set up fresh ones
+    cleanupDrag()
+
+    if header then
+        local uis = game:GetService("UserInputService")
+        local hsDragging = false
+        local dragStart, startPos
+
+        table.insert(hsDragConns, header.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                hsDragging = true
+                dragStart = input.Position
+                startPos = clickguiFrame.Position
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        hsDragging = false
+                    end
+                end)
+            end
+        end))
+
+        table.insert(hsDragConns, uis.InputChanged:Connect(function(input)
+            if hsDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                local delta = input.Position - dragStart
+                clickguiFrame.Position = UDim2.new(
+                    startPos.X.Scale, startPos.X.Offset + delta.X,
+                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                )
+            end
+        end))
+    end
+end
+
+-- Apply on first load
+task.spawn(function()
+    task.wait(0.5)
+    resizeAndDragClickgui()
 end)
 
 task.spawn(function()
@@ -1131,12 +1133,20 @@ task.spawn(function()
     getgenv().OpenKey = Enum.KeyCode.Insert
 
     getgenv().ToggleMenu = function()
-        Window:SetVisible(not Window.Toggle)
+        local showing = not Window.Toggle
+        Window:SetVisible(showing)
+        if showing then
+            -- Re-apply resize and drag every time the window opens
+            task.spawn(function()
+                task.wait(0.3)
+                resizeAndDragClickgui()
+            end)
+        end
     end
 
     uis.InputBegan:Connect(function(input, gp)
         if gp and not getgenv().IgnoreGP then return end
-        
+
         if input.KeyCode == getgenv().OpenKey or input.KeyCode.Name == tostring(getgenv().OpenKey) then
             ToggleMenu()
         end
