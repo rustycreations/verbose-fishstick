@@ -1060,6 +1060,10 @@ local function findClickguiFrame()
     return nil
 end
 
+local hsOriginalX = 0
+local hsOriginalY = 0
+local hsOrigTextSizes = setmetatable({}, {__mode = "k"}) -- weak table: stores original TextSize per element
+
 local function hsApplyResize()
     if hsApplying then return end
     hsApplying = true
@@ -1068,27 +1072,40 @@ local function hsApplyResize()
     if not frame then hsApplying = false return end
 
     local curSize = frame.Size
-    -- If already at target size, skip
-    if hsTargetX > 0 and math.abs(curSize.X.Offset - hsTargetX) < 10 and math.abs(curSize.Y.Offset - hsTargetY) < 10 then
-        hsApplying = false
-        return
+
+    -- Store the original (full) Fatality size on first run
+    if hsOriginalX == 0 then
+        hsOriginalX = curSize.X.Offset
+        hsOriginalY = curSize.Y.Offset
     end
 
-    -- Calculate target size (65% of current/original)
-    hsTargetX = math.floor(curSize.X.Offset * 0.65)
-    hsTargetY = math.floor(curSize.Y.Offset * 0.65)
-    frame.Size = UDim2.new(0, hsTargetX, 0, hsTargetY)
+    -- Target is always 65% of the original full size
+    local targetX = math.floor(hsOriginalX * 0.65)
+    local targetY = math.floor(hsOriginalY * 0.65)
+    hsTargetX = targetX
+    hsTargetY = targetY
 
-    -- Fix ALL text: set TextScaled so Roblox auto-fits text to container
+    -- Only resize if not already at target
+    if math.abs(curSize.X.Offset - targetX) > 5 or math.abs(curSize.Y.Offset - targetY) > 5 then
+        frame.Size = UDim2.new(0, targetX, 0, targetY)
+    end
+
+    -- Scale down all text to fit the smaller window.
+    -- Uses a weak table to remember each element's ORIGINAL TextSize so we
+    -- always scale from the original value, never from an already-scaled one.
+    -- This is safe across Fatality resets: if Fatality recreates elements,
+    -- the weak table auto-cleans stale entries. If it just resets properties,
+    -- we re-apply from the stored original.
+    -- DO NOT touch TextScaled, RichText, or TextWrapped - Fatality manages those.
     for _, desc in pairs(frame:GetDescendants()) do
         if desc:IsA("TextLabel") or desc:IsA("TextButton") then
-            if desc.TextScaled == false then
-                desc.TextScaled = true
+            if not hsOrigTextSizes[desc] then
+                hsOrigTextSizes[desc] = desc.TextSize -- store original on first encounter
             end
-            if desc.TextWrapped == false then
-                desc.TextWrapped = true
+            local origSize = hsOrigTextSizes[desc]
+            if origSize and origSize > 8 then
+                desc.TextSize = math.max(8, math.floor(origSize * 0.75))
             end
-            desc.RichText = false
         end
     end
 
