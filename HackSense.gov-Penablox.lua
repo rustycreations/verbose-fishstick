@@ -743,18 +743,15 @@ task.spawn(function()
         local oldFireServer
         oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, function(self, ...)
             local args = {...}
-            if tostring(self) == "MainEvent" and type(args[1]) == "string" then
-                local ok, action = pcall(decryptstring, args[1])
-                -- Trigger Auto-Stop whenever the game shoots (regardless of RageBot)
-                if ok and (action == "Shoot" or action == "MeleeHit") then
-                    getgenv().AutoStopShootTime = os.clock()
-                end
+            if tostring(self) == "MainEvent" and getgenv().RageBotEnabled then
+                if getgenv().RageBotMethod == "Event Hook" and checkspecificfunction("hookfunction") then
+                    local action = decryptstring(args[1])
+                    if action == "Shoot" or action == "MeleeHit" then
 
-                if getgenv().RageBotEnabled and ok then
-                    if getgenv().RageBotMethod == "Event Hook" and checkspecificfunction("hookfunction") then
-                        if action == "Shoot" or action == "MeleeHit" then
+                        -- Trigger Auto-Stop when game shoots
+                        getgenv().AutoStopShootTime = os.clock()
 
-                            local target = GetClosestPlayer()
+                        local target = GetClosestPlayer()
 
                         if target and target.Character and target.Character:FindFirstChild("Head") then
 
@@ -816,7 +813,6 @@ task.spawn(function()
                     end
                 end
             end
-            end  -- close MainEvent check
 
             return oldFireServer(self, unpack(args))
         end)
