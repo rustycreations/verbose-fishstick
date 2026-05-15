@@ -846,16 +846,9 @@ task.spawn(function()
 end)
 
 -- Auto-Stop: stop movement while shooting (holding left click)
--- Speed: multiply planar speed for faster bhop/movement
 
 if not getgenv().AutoStopEnabled then
     getgenv().AutoStopEnabled = false
-end
-if not getgenv().SpeedEnabled then
-    getgenv().SpeedEnabled = false
-end
-if not getgenv().SpeedMultiplier then
-    getgenv().SpeedMultiplier = 1.5
 end
 
 task.spawn(function()
@@ -884,17 +877,70 @@ task.spawn(function()
         if getgenv().RemoveVelocity then return end
 
         if getgenv().AutoStopEnabled and mouseHeld then
-            -- Auto-Stop takes priority over Speed
             MoveModule.GetPlanarSpeed = function() return 0 end
-        elseif getgenv().SpeedEnabled then
-            -- Multiply original speed by the speed multiplier
-            local mult = getgenv().SpeedMultiplier or 1.5
-            MoveModule.GetPlanarSpeed = function() return origPS() * mult end
         else
             if MoveModule.GetPlanarSpeed ~= origPS then
                 MoveModule.GetPlanarSpeed = origPS
             end
         end
+    end)
+end)
+
+-- Speed: directly modify Humanoid.WalkSpeed for faster movement/bhop
+-- (GetPlanarSpeed hook doesn't actually affect movement, so we use WalkSpeed instead)
+
+if not getgenv().SpeedEnabled then
+    getgenv().SpeedEnabled = false
+end
+if not getgenv().SpeedMultiplier then
+    getgenv().SpeedMultiplier = 1.5
+end
+
+task.spawn(function()
+    local plr = game:GetService("Players").LocalPlayer
+    local RunService = game:GetService("RunService")
+
+    local function getHumanoid()
+        local char = plr.Character
+        return char and char:FindFirstChildOfClass("Humanoid")
+    end
+
+    -- Save the base WalkSpeed the game sets
+    local baseWalkSpeed = 16
+
+    RunService.Heartbeat:Connect(function()
+        local hum = getHumanoid()
+        if not hum then return end
+
+        -- Capture the base speed when speed is off
+        if not getgenv().SpeedEnabled then
+            baseWalkSpeed = hum.WalkSpeed
+            return
+        end
+
+        -- Apply multiplier to base speed
+        local mult = getgenv().SpeedMultiplier or 1.5
+        local targetSpeed = math.floor(baseWalkSpeed * mult)
+
+        -- Force WalkSpeed every frame (game might try to reset it)
+        if hum.WalkSpeed ~= targetSpeed then
+            pcall(function()
+                hum.WalkSpeed = targetSpeed
+            end)
+        end
+    end)
+
+    -- Also hook WalkSpeed __newindex to prevent the game from overriding it
+    local oldNewIndex
+    oldNewIndex = hookmetamethod(game, "__newindex", function(self, key, value)
+        if not checkcaller() and getgenv().SpeedEnabled then
+            local hum = getHumanoid()
+            if hum and self == hum and key == "WalkSpeed" then
+                local mult = getgenv().SpeedMultiplier or 1.5
+                value = math.floor(baseWalkSpeed * mult)
+            end
+        end
+        return oldNewIndex(self, key, value)
     end)
 end)
 
