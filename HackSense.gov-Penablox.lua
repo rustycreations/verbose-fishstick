@@ -817,6 +817,15 @@ task.spawn(function()
                     if action == "Shoot" or action == "MeleeHit" then
                         getgenv().LagPeakShotTime = os.clock()
 
+                        -- Bullet debug: capture shot origin and hit position
+                        pcall(function()
+                            local origin = args[6] and typeof(args[6]) == "Vector3" and args[6] or workspace.CurrentCamera.CFrame.Position
+                            local hitpos = args[7] and typeof(args[7]) == "Vector3" and args[7] or Vector3.new(0,0,0)
+                            if hitpos ~= Vector3.new(0,0,0) then
+                                table.insert(getgenv().BulletDebugShots, {origin = origin, hitpos = hitpos, time = os.clock(), hit = true})
+                            end
+                        end)
+
                         local target = GetClosestPlayer()
 
                         if target and target.Character and target.Character:FindFirstChild("Head") then
@@ -1055,11 +1064,107 @@ task.spawn(function()
     end)
 end)
 
+-- Bullet Debug: draws bullet tracers and impact markers
+-- Uses Drawing API for client-side only visualization
+
+if not getgenv().BulletDebugEnabled then
+    getgenv().BulletDebugEnabled = false
+end
+if not getgenv().BulletDebugFadeTime then
+    getgenv().BulletDebugFadeTime = 3
+end
+
+-- Store bullet debug data for rendering
+getgenv().BulletDebugShots = {}
+
+task.spawn(function()
+    local Camera = workspace.CurrentCamera
+    local RunService = game:GetService("RunService")
+
+    -- Pool of drawing objects (reuse to avoid creating/destroying every frame)
+    local maxShots = 50
+    local lines = {}
+    local impacts = {}
+
+    for i = 1, maxShots do
+        local line = Drawing.new("Line")
+        line.Visible = false
+        line.Thickness = 1.5
+        line.Transparency = 0.3
+        line.Color = Color3.fromRGB(255, 255, 0)
+
+        local impact = Drawing.new("Circle")
+        impact.Visible = false
+        impact.Radius = 4
+        impact.Filled = true
+        impact.Transparency = 0.4
+        impact.Color = Color3.fromRGB(255, 50, 50)
+        impact.Thickness = 1
+        impact.NumSides = 12
+
+        table.insert(lines, line)
+        table.insert(impacts, impact)
+    end
+
+    -- Track shots from FireServer hook
+    -- getgenv().BulletDebugShots = {{origin=Vector3, hitpos=Vector3, time=number}, ...}
+
+    RunService.RenderStepped:Connect(function()
+        local now = os.clock()
+        local fadeTime = getgenv().BulletDebugFadeTime or 3
+        local shots = getgenv().BulletDebugShots or {}
+        local enabled = getgenv().BulletDebugEnabled
+
+        -- Clean up expired shots
+        while #shots > 0 and now - shots[1].time > fadeTime do
+            table.remove(shots, 1)
+        end
+
+        -- Render each shot
+        for i = 1, maxShots do
+            local shot = shots[i]
+            if shot and enabled then
+                local age = now - shot.time
+                local alpha = 1 - (age / fadeTime)
+
+                -- World to screen for line
+                local originScreen, originOnScreen = Camera:WorldToScreenPoint(shot.origin)
+                local hitScreen, hitOnScreen = Camera:WorldToScreenPoint(shot.hitpos)
+
+                if originOnScreen and hitOnScreen then
+                    lines[i].Visible = true
+                    lines[i].From = Vector2.new(originScreen.X, originScreen.Y)
+                    lines[i].To = Vector2.new(hitScreen.X, hitScreen.Y)
+                    lines[i].Transparency = 0.3 + (0.7 * (1 - alpha))
+                    lines[i].Color = shot.hit and Color3.fromRGB(255, 50, 50) or Color3.fromRGB(255, 255, 0)
+
+                    impacts[i].Visible = true
+                    impacts[i].Position = Vector2.new(hitScreen.X, hitScreen.Y)
+                    impacts[i].Transparency = 0.4 + (0.6 * (1 - alpha))
+                    impacts[i].Color = shot.hit and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(255, 165, 0)
+                    impacts[i].Radius = 4 + (6 * (1 - alpha))
+                else
+                    lines[i].Visible = false
+                    impacts[i].Visible = false
+                end
+            else
+                lines[i].Visible = false
+                impacts[i].Visible = false
+            end
+        end
+
+        -- Trim shots list to maxShots
+        while #shots > maxShots do
+            table.remove(shots, 1)
+        end
+    end)
+end)
+
 task.spawn(function()
     local oldMathRandom
     oldMathRandom = hookfunction(math.random, function(...)
         local args = {...}
-        
+
         if getgenv().RemoveMathRandom and not checkcaller() then
             if #args == 0 then
                 return 0
@@ -1793,11 +1898,33 @@ end
 
 do
     local ESP = VisualMenu:AddSection({ Position = 'left', Name = "ESP" });
+    local DebugSect = VisualMenu:AddSection({ Position = 'center', Name = "DEBUG" });
+
     ESP:AddToggle({
         Name = "Chinese ESP",
         Flag = "ChineseESP",
-        Callback = function(v)            
+        Callback = function(v)
             getgenv().ChineseESP = v
+        end
+    })
+
+    DebugSect:AddToggle({
+        Name = "Bullet Debug",
+        Flag = "BulletDebugEnabled",
+        Callback = function(v)
+            getgenv().BulletDebugEnabled = v
+        end
+    })
+
+    DebugSect:AddSlider({
+        Name = "Debug Fade Time",
+        Flag = "BulletDebugFadeTime",
+        Default = 3,
+        Min = 1,
+        Max = 10,
+        Round = 1,
+        Callback = function(v)
+            getgenv().BulletDebugFadeTime = v
         end
     })
 
