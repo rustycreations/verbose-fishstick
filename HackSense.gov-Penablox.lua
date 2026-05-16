@@ -355,11 +355,13 @@ task.spawn(function()
                     randomness = math.random(1, 10)
 
                     AAHandler.SendYawJitter(nil, randomMode, baseYaw, left, right, jitter, delayness, randomness)
+
+                    -- Also randomize body yaw to desync further
+                    AAHandler.SendBodyYaw(nil, math.random(-80, 80))
                 else
                     AAHandler.SendYawJitter(nil, mode, baseYaw, left, right, jitter, delayness, randomness)
                 end
 
-                AAHandler.SendBodyYaw(nil, getgenv().BodyYawantiaim or 0)
                 AAHandler.SendPitchMode(nil, "Static", getgenv().Pitchantiaim or 0, 0, 0, 0, 0, 0)
 
                 -- yaw
@@ -379,6 +381,58 @@ task.spawn(function()
 
         end
     end
+end)
+
+-- ResolverKiller: physically scramble RootJoint C0 every frame
+-- This makes the server think our body is at a completely different angle each frame
+-- so the built-in resolver can never lock onto the real hitbox position
+
+task.spawn(function()
+    local plr = game:GetService("Players").LocalPlayer
+    local RunService = game:GetService("RunService")
+
+    local function scrambleJoints()
+        local char = plr.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local rj = hrp:FindFirstChild("RootJoint")
+        if not rj then return end
+
+        -- Save original C0 if we haven't yet
+        if not rj:GetAttribute("RKBaseC0") then
+            rj:SetAttribute("RKBaseC0", rj.C0)
+        end
+
+        -- Apply random yaw offset every frame
+        local baseC0 = rj:GetAttribute("RKBaseC0")
+        local randomYaw = math.rad(math.random(-180, 180))
+        pcall(function()
+            rj.C0 = baseC0 * CFrame.Angles(0, randomYaw, 0)
+        end)
+    end
+
+    RunService.Heartbeat:Connect(function()
+        if getgenv().AntiAimEnabled and getgenv().typeofantiaim == "ResolverKiller" then
+            scrambleJoints()
+        end
+    end)
+
+    -- Reset joints when switching away from ResolverKiller or disabling AA
+    RunService.Heartbeat:Connect(function()
+        if not getgenv().AntiAimEnabled or getgenv().typeofantiaim ~= "ResolverKiller" then
+            local char = plr.Character
+            if not char then return end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            local rj = hrp:FindFirstChild("RootJoint")
+            if not rj or not rj:GetAttribute("RKBaseC0") then return end
+            pcall(function()
+                rj.C0 = rj:GetAttribute("RKBaseC0")
+            end)
+            rj:SetAttribute("RKBaseC0", nil) -- clear saved base so it re-saves next time
+        end
+    end)
 end)
 
 -- Infinite Velocity
