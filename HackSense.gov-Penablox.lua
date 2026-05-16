@@ -1128,7 +1128,7 @@ task.spawn(function()
     hudFrame.BackgroundTransparency = 0.45
     hudFrame.BorderSizePixel = 0
     hudFrame.Size = UDim2.new(0, 400, 0, 32)
-    hudFrame.Position = UDim2.new(0.5, -200, 0, getgenv().IsMobile and 90 or 16)
+    hudFrame.Position = UDim2.new(0.5, -200, 0, getgenv().IsMobile and 60 or 16)
     hudFrame.AnchorPoint = Vector2.new(0, 0)
     hudFrame.Visible = false
     hudFrame.Parent = screenGui
@@ -1213,25 +1213,35 @@ task.spawn(function()
     end)
 
     -- ========== WATCH FOR HITS VIA MAINEVENT ==========
-    local mainEvent = game:GetService("ReplicatedStorage"):FindFirstChild("MainEvent")
-    if mainEvent then
-        mainEvent.OnClientEvent:Connect(function(...)
-            local args = {...}
-            for _, v in pairs(args) do
-                if type(v) == "string" then
-                    local lower = v:lower()
-                    if lower:find("hit") or lower:find("damage") or lower:find("kill") then
-                        if getgenv().BDStats.pendingShot > 0 and os.clock() - getgenv().BDStats.pendingShot < 2 then
-                            getgenv().BDStats.hits = getgenv().BDStats.hits + 1
-                            getgenv().BDStats.lastHit = true
-                            getgenv().BDStats.lastReason = "HIT"
-                            getgenv().BDStats.pendingShot = 0
+    -- NOTE: disabledefaultragebot() disconnects ALL MainEvent.OnClientEvent
+    -- connections when Force Hit is enabled, which kills our listener.
+    -- So we store the re-register function and call it after that.
+    local function registerBDHitListener()
+        local mainEvent = game:GetService("ReplicatedStorage"):FindFirstChild("MainEvent")
+        if mainEvent then
+            mainEvent.OnClientEvent:Connect(function(...)
+                local args = {...}
+                for _, v in pairs(args) do
+                    if type(v) == "string" then
+                        local lower = v:lower()
+                        if lower:find("hit") or lower:find("damage") or lower:find("kill") then
+                            if getgenv().BDStats.pendingShot > 0 and os.clock() - getgenv().BDStats.pendingShot < 2 then
+                                getgenv().BDStats.hits = getgenv().BDStats.hits + 1
+                                getgenv().BDStats.lastHit = true
+                                getgenv().BDStats.lastReason = "HIT"
+                                getgenv().BDStats.pendingShot = 0
+                            end
                         end
                     end
                 end
-            end
-        end)
+            end)
+        end
     end
+
+    -- Register once on load
+    registerBDHitListener()
+    -- Store so Force Hit callback can re-register after killing all connections
+    getgenv().BDReRegisterHitListener = registerBDHitListener
 
     -- ========== MAIN HUD UPDATE LOOP ==========
     RunService.Heartbeat:Connect(function()
@@ -1258,7 +1268,7 @@ task.spawn(function()
         end
 
         -- Update HUD position for mobile/PC
-        local yOffset = getgenv().IsMobile and 90 or 16
+        local yOffset = getgenv().IsMobile and 60 or 16
         hudFrame.Position = UDim2.new(0.5, -200, 0, yOffset)
 
         -- Build display text
@@ -1748,6 +1758,13 @@ do
 
             if v then
                 disabledefaultragebot()
+                -- Re-register bullet debug hit listener since
+                -- disabledefaultragebot() just killed all MainEvent connections
+                pcall(function()
+                    if getgenv().BDReRegisterHitListener then
+                        getgenv().BDReRegisterHitListener()
+                    end
+                end)
             end
         end
     })
