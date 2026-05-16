@@ -122,12 +122,11 @@ if getgenv().HackSenseIsLoaded == true then
 end
 
 -- Device auto-detection: PC vs Mobile
+-- TouchEnabled alone is the reliable check.
+-- KeyboardEnabled returns true on mobile too (on-screen keyboard exists),
+-- so we can NOT use "not KeyboardEnabled" as a filter.
 local UserInputService = game:GetService("UserInputService")
-getgenv().IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
--- Edge case: some tablets have both touch + keyboard. Treat as PC.
-if UserInputService.TouchEnabled and UserInputService.KeyboardEnabled then
-    getgenv().IsMobile = false
-end
+getgenv().IsMobile = UserInputService.TouchEnabled
 
 -- globals
 
@@ -1175,7 +1174,9 @@ task.spawn(function()
 
         -- Update HUD position (center top)
         -- On mobile, offset down to avoid being hidden behind top roblox UI bars
-        local yOffset = getgenv().IsMobile and 50 or 20
+        -- Mobile Roblox has a thick top bar (health, hunger, leaderstats)
+        -- so push the HUD well below it on mobile
+        local yOffset = getgenv().IsMobile and 90 or 20
         hudText.Position = Vector2.new(Camera.ViewportSize.X / 2, yOffset)
 
         -- Build display text
