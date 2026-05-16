@@ -1070,7 +1070,8 @@ task.spawn(function()
 end)
 
 -- Bullet Debug: shot stats HUD at top center
--- Tracks shots fired, hits, misses, and miss reasons
+-- Uses standard ScreenGui + TextLabel (works on ALL devices including mobile)
+-- Also hooks into the game's built-in bullet debug display if it exists
 
 if not getgenv().BulletDebugEnabled then
     getgenv().BulletDebugEnabled = false
@@ -1107,29 +1108,115 @@ getgenv().BDStats = {
 getgenv().BDLastDesyncMsg = 0
 
 task.spawn(function()
-    local Camera = workspace.CurrentCamera
-    local RunService = game:GetService("RunService")
     local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local plr = Players.LocalPlayer
 
-    -- Create HUD text drawing
-    local hudText = Drawing.new("Text")
-    hudText.Visible = false
+    -- ========== SCREENGUI HUD (mobile compatible) ==========
+    -- Using standard Roblox UI instead of Drawing API because Drawing
+    -- doesn't work on most mobile executors
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "HackSenseBulletDebug"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = plr:WaitForChild("PlayerGui")
+
+    local hudFrame = Instance.new("Frame")
+    hudFrame.Name = "HUDFrame"
+    hudFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    hudFrame.BackgroundTransparency = 0.45
+    hudFrame.BorderSizePixel = 0
+    hudFrame.Size = UDim2.new(0, 400, 0, 32)
+    hudFrame.Position = UDim2.new(0.5, -200, 0, getgenv().IsMobile and 90 or 16)
+    hudFrame.AnchorPoint = Vector2.new(0, 0)
+    hudFrame.Visible = false
+    hudFrame.Parent = screenGui
+
+    local frameCorner = Instance.new("UICorner")
+    frameCorner.CornerRadius = UDim.new(0, 6)
+    frameCorner.Parent = hudFrame
+
+    local hudStroke = Instance.new("UIStroke")
+    hudStroke.Color = Color3.fromRGB(60, 60, 60)
+    hudStroke.Thickness = 1
+    hudStroke.Parent = hudFrame
+
+    local hudText = Instance.new("TextLabel")
+    hudText.Name = "HUDText"
+    hudText.BackgroundTransparency = 1
+    hudText.Size = UDim2.new(1, -16, 1, 0)
+    hudText.Position = UDim2.new(0, 8, 0, 0)
+    hudText.Font = Enum.Font.GothamBold
+    hudText.TextSize = 14
+    hudText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    hudText.TextStrokeTransparency = 0.5
+    hudText.TextStrokeColor3 = Color3.new(0, 0, 0)
+    hudText.TextXAlignment = Enum.TextXAlignment.Center
     hudText.Text = ""
-    hudText.Size = 16
-    hudText.Center = true
-    hudText.Outline = true
-    hudText.OutlineColor = Color3.new(0, 0, 0)
-    hudText.Color = Color3.fromRGB(255, 255, 255)
-    hudText.Font = Drawing.Fonts.GothamBold
-    hudText.Position = Vector2.new(Camera.ViewportSize.X / 2, 20)
+    hudText.Parent = hudFrame
 
-    -- Watch for hits via MainEvent OnClientEvent
-    -- The game sends hit confirmations back to the client
+    -- ========== HOOK INTO GAME'S BUILT-IN BULLET DEBUG ==========
+    -- Search for the game's existing debug display and hook it
+    -- The game's built-in debug uses standard GUI so it works on mobile
+    local gameDebugEnabled = false
+    local gameDebugLabel = nil
+
+    -- Look for the game's bullet debug in PlayerGui and CoreGui
+    local function findGameBulletDebug()
+        local keywords = {"bullet", "debug", "shotinfo", "hitinfo", "tracer", "debugoverlay"}
+        for _, container in pairs({plr.PlayerGui, game:GetService("CoreGui")}) do
+            for _, child in pairs(container:GetChildren()) do
+                local nameLower = child.Name:lower()
+                for _, kw in pairs(keywords) do
+                    if nameLower:find(kw) then
+                        -- Found something debug-related, search deeper for text labels
+                        local labels = child:FindFirstChildWhichIsA("TextLabel", true)
+                        if labels then
+                            return labels
+                        end
+                        -- Maybe it IS a text label
+                        if child:IsA("TextLabel") then
+                            return child
+                        end
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    -- Also scan getgc for bullet debug tables the game uses internally
+    local function hookGameDebugTable()
+        pcall(function()
+            for _, v in pairs(getgc(true)) do
+                if type(v) == "table" then
+                    -- Look for common game debug state tables
+                    if rawget(v, "BulletDebug") or rawget(v, "bulletDebug") or rawget(v, "DebugEnabled") then
+                        gameDebugEnabled = true
+                        break
+                    end
+                end
+            end
+        end)
+    end
+
+    hookGameDebugTable()
+
+    -- Keep checking for the game's debug UI as it might load later
+    task.spawn(function()
+        while task.wait(2) do
+            if not gameDebugLabel then
+                gameDebugLabel = findGameBulletDebug()
+            end
+        end
+    end)
+
+    -- ========== WATCH FOR HITS VIA MAINEVENT ==========
     local mainEvent = game:GetService("ReplicatedStorage"):FindFirstChild("MainEvent")
     if mainEvent then
         mainEvent.OnClientEvent:Connect(function(...)
             local args = {...}
-            -- Check for hit/damage callbacks
             for _, v in pairs(args) do
                 if type(v) == "string" then
                     local lower = v:lower()
@@ -1146,8 +1233,7 @@ task.spawn(function()
         end)
     end
 
-    -- Also watch for desync messages from the print hook
-    -- (the resolver already hooks print, so we watch for the side effect)
+    -- ========== MAIN HUD UPDATE LOOP ==========
     RunService.Heartbeat:Connect(function()
         local now = os.clock()
         local stats = getgenv().BDStats
@@ -1157,7 +1243,6 @@ task.spawn(function()
             stats.misses = stats.misses + 1
             stats.lastHit = false
 
-            -- Classify miss reason
             local lastDesync = getgenv().BDLastDesyncMsg or 0
             if now - lastDesync < 0.7 then
                 stats.lastReason = "DESYNC"
@@ -1172,16 +1257,13 @@ task.spawn(function()
             stats.pendingShot = 0
         end
 
-        -- Update HUD position (center top)
-        -- On mobile, offset down to avoid being hidden behind top roblox UI bars
-        -- Mobile Roblox has a thick top bar (health, hunger, leaderstats)
-        -- so push the HUD well below it on mobile
-        local yOffset = getgenv().IsMobile and 90 or 20
-        hudText.Position = Vector2.new(Camera.ViewportSize.X / 2, yOffset)
+        -- Update HUD position for mobile/PC
+        local yOffset = getgenv().IsMobile and 90 or 16
+        hudFrame.Position = UDim2.new(0.5, -200, 0, yOffset)
 
         -- Build display text
         local enabled = getgenv().BulletDebugEnabled
-        hudText.Visible = enabled
+        hudFrame.Visible = enabled
 
         if enabled and stats.fired > 0 then
             local parts = {}
@@ -1200,16 +1282,21 @@ task.spawn(function()
                 table.insert(parts, "Accuracy: " .. tostring(acc) .. "%")
             end
             if getgenv().BulletDebugShowReason and stats.lastReason ~= "" then
-                local color = stats.lastHit and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(255, 100, 100)
                 table.insert(parts, "Last: " .. stats.lastReason)
-                hudText.Color = color
+                hudText.TextColor3 = stats.lastHit and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(255, 100, 100)
             else
-                hudText.Color = Color3.fromRGB(255, 255, 255)
+                hudText.TextColor3 = Color3.fromRGB(255, 255, 255)
             end
 
             hudText.Text = table.concat(parts, "  |  ")
+
+            -- Auto-size the frame to fit text
+            hudFrame.Size = UDim2.new(0, math.clamp(#hudText.Text * 8.5 + 32, 200, 700), 0, 32)
+            hudFrame.Position = UDim2.new(0.5, -(hudFrame.Size.X.Offset / 2), 0, yOffset)
         else
             hudText.Text = enabled and "No shots fired" or ""
+            hudFrame.Size = UDim2.new(0, 160, 0, 32)
+            hudFrame.Position = UDim2.new(0.5, -80, 0, yOffset)
         end
     end)
 end)
