@@ -333,18 +333,32 @@ task.spawn(function()
 
         if getgenv().AntiAimEnabled then
             local smainses , fmainses = pcall(function()
-                AAHandler.SendYawJitter(
-                    nil,
-                    getgenv().typeofantiaim or "Static",
-                    getgenv().BaseYawantiaim or 0,
+                local mode = getgenv().typeofantiaim or "Static"
+                local baseYaw = getgenv().BaseYawantiaim or 0
+                local left = getgenv().leftantiaim or 0
+                local right = getgenv().rightantiaim or 0
+                local jitter = getgenv().antiaimjitter or 0
+                local delayness = getgenv().antiaimdelayness or 0
+                local randomness = getgenv().antiaimrandomness or 0
 
-                    getgenv().leftantiaim or 0,
-                    getgenv().rightantiaim or 0,
+                if mode == "ResolverKiller" then
+                    -- Rapidly randomize everything every tick so no resolver can lock on
+                    local modes = {"Static", "Offset", "Center", "3-Way", "5-Way"}
+                    local randomMode = modes[math.random(#modes)]
 
-                    getgenv().antiaimjitter or 0,
-                    getgenv().antiaimdelayness or 0,
-                    getgenv().antiaimrandomness or 0
-                )
+                    -- Completely randomize all angle parameters
+                    baseYaw = math.random(-180, 180)
+                    left = math.random(-90, 90)
+                    right = math.random(-90, 90)
+                    jitter = math.random(50, 180)
+                    delayness = math.random(0, 10) * 0.001
+                    randomness = math.random(1, 10)
+
+                    AAHandler.SendYawJitter(nil, randomMode, baseYaw, left, right, jitter, delayness, randomness)
+                else
+                    AAHandler.SendYawJitter(nil, mode, baseYaw, left, right, jitter, delayness, randomness)
+                end
+
                 AAHandler.SendBodyYaw(nil, getgenv().BodyYawantiaim or 0)
                 AAHandler.SendPitchMode(nil, "Static", getgenv().Pitchantiaim or 0, 0, 0, 0, 0, 0)
 
@@ -883,51 +897,6 @@ task.spawn(function()
                 MoveModule.GetPlanarSpeed = origPS
             end
         end
-    end)
-end)
-
--- Speed: apply extra velocity in movement direction without touching WalkSpeed
--- (WalkSpeed gets server-kicked, so we use physics-based speed boost instead)
-
-if not getgenv().SpeedEnabled then
-    getgenv().SpeedEnabled = false
-end
-if not getgenv().SpeedMultiplier then
-    getgenv().SpeedMultiplier = 1.5
-end
-
-task.spawn(function()
-    local plr = game:GetService("Players").LocalPlayer
-    local RunService = game:GetService("RunService")
-
-    RunService.Heartbeat:Connect(function(dt)
-        if not getgenv().SpeedEnabled then return end
-
-        local char = plr.Character
-        if not char then return end
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hum or not hrp then return end
-        if not hum.Health or hum.Health <= 0 then return end
-
-        local moveDir = hum.MoveDirection
-        if moveDir.Magnitude < 0.01 then return end -- not moving
-
-        -- Calculate extra velocity: boost = (multiplier - 1) * base walk speed * direction
-        -- Base walk speed is typically 16 in most games
-        local baseSpeed = 16
-        local mult = getgenv().SpeedMultiplier or 1.5
-        local extraSpeed = (mult - 1) * baseSpeed
-
-        pcall(function()
-            local currentVel = hrp.AssemblyLinearVelocity
-            -- Add extra velocity in the movement direction (only on X/Z plane, preserve Y for jumping)
-            hrp.AssemblyLinearVelocity = Vector3.new(
-                currentVel.X + moveDir.X * extraSpeed,
-                currentVel.Y,
-                currentVel.Z + moveDir.Z * extraSpeed
-            )
-        end)
     end)
 end)
 
@@ -1701,7 +1670,7 @@ do
     AA_General:AddDropdown({
         Name = "Mode",
         Flag = "AntiAimMode",
-        Values = {"Static","Offset","Center","3-Way","5-Way","Off","HackSense"},
+        Values = {"Static","Offset","Center","3-Way","5-Way","Off","HackSense","ResolverKiller"},
         Default = "Static",
         Callback = function(v)
             getgenv().typeofantiaim = v
@@ -1870,27 +1839,6 @@ do
         Risky = true,
         Callback = function(v)
             getgenv().RemoveMathRandom = v
-        end
-    })
-
-    Exploits:AddToggle({
-        Name = "Speed",
-        Flag = "SpeedEnabled",
-        Risky = true,
-        Callback = function(v)
-            getgenv().SpeedEnabled = v
-        end
-    })
-
-    Exploits:AddSlider({
-        Name = "Speed Multiplier",
-        Flag = "SpeedMultiplier",
-        Default = 1.5,
-        Min = 1.1,
-        Max = 3,
-        Round = 1,
-        Callback = function(v)
-            getgenv().SpeedMultiplier = v
         end
     })
 
