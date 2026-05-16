@@ -694,6 +694,7 @@ task.spawn(function()
             print = function(...)
                 for _, v in ipairs({...}) do
                     if tostring(v):find("Missed due to desync") then
+                        getgenv().BDLastDesyncMsg = os.clock()
                         local unlucky = getClosest()
                         if unlucky then
                             missCounter[unlucky] = (missCounter[unlucky] or 0) + 1
@@ -817,13 +818,10 @@ task.spawn(function()
                     if action == "Shoot" or action == "MeleeHit" then
                         getgenv().LagPeakShotTime = os.clock()
 
-                        -- Bullet debug: capture shot origin and hit position
+                        -- Bullet debug: track shot fired
                         pcall(function()
-                            local origin = args[6] and typeof(args[6]) == "Vector3" and args[6] or workspace.CurrentCamera.CFrame.Position
-                            local hitpos = args[7] and typeof(args[7]) == "Vector3" and args[7] or Vector3.new(0,0,0)
-                            if hitpos ~= Vector3.new(0,0,0) then
-                                table.insert(getgenv().BulletDebugShots, {origin = origin, hitpos = hitpos, time = os.clock(), hit = true})
-                            end
+                            getgenv().BDStats.fired = getgenv().BDStats.fired + 1
+                            getgenv().BDStats.pendingShot = os.clock()
                         end)
 
                         local target = GetClosestPlayer()
@@ -1064,98 +1062,143 @@ task.spawn(function()
     end)
 end)
 
--- Bullet Debug: draws bullet tracers and impact markers
--- Uses Drawing API for client-side only visualization
+-- Bullet Debug: shot stats HUD at top center
+-- Tracks shots fired, hits, misses, and miss reasons
 
 if not getgenv().BulletDebugEnabled then
     getgenv().BulletDebugEnabled = false
 end
-if not getgenv().BulletDebugFadeTime then
-    getgenv().BulletDebugFadeTime = 3
+if not getgenv().BulletDebugShowFired then
+    getgenv().BulletDebugShowFired = true
+end
+if not getgenv().BulletDebugShowHit then
+    getgenv().BulletDebugShowHit = true
+end
+if not getgenv().BulletDebugShowMiss then
+    getgenv().BulletDebugShowMiss = true
+end
+if not getgenv().BulletDebugShowReason then
+    getgenv().BulletDebugShowReason = true
+end
+if not getgenv().BulletDebugShowAccuracy then
+    getgenv().BulletDebugShowAccuracy = true
 end
 
--- Store bullet debug data for rendering
-getgenv().BulletDebugShots = {}
+-- Shot tracking state
+getgenv().BDStats = {
+    fired = 0,
+    hits = 0,
+    misses = 0,
+    desyncMisses = 0,
+    resolverMisses = 0,
+    lastHit = false,
+    lastReason = "",
+    pendingShot = 0, -- timestamp of last shot, used to detect misses
+}
+
+-- Detect "Missed due to desync" from the print hook
+getgenv().BDLastDesyncMsg = 0
 
 task.spawn(function()
     local Camera = workspace.CurrentCamera
     local RunService = game:GetService("RunService")
+    local Players = game:GetService("Players")
 
-    -- Pool of drawing objects (reuse to avoid creating/destroying every frame)
-    local maxShots = 50
-    local lines = {}
-    local impacts = {}
+    -- Create HUD text drawing
+    local hudText = Drawing.new("Text")
+    hudText.Visible = false
+    hudText.Text = ""
+    hudText.Size = 16
+    hudText.Center = true
+    hudText.Outline = true
+    hudText.OutlineColor = Color3.new(0, 0, 0)
+    hudText.Color = Color3.fromRGB(255, 255, 255)
+    hudText.Font = Drawing.Fonts.GothamBold
+    hudText.Position = Vector2.new(Camera.ViewportSize.X / 2, 20)
 
-    for i = 1, maxShots do
-        local line = Drawing.new("Line")
-        line.Visible = false
-        line.Thickness = 1.5
-        line.Transparency = 0.3
-        line.Color = Color3.fromRGB(255, 255, 0)
-
-        local impact = Drawing.new("Circle")
-        impact.Visible = false
-        impact.Radius = 4
-        impact.Filled = true
-        impact.Transparency = 0.4
-        impact.Color = Color3.fromRGB(255, 50, 50)
-        impact.Thickness = 1
-        impact.NumSides = 12
-
-        table.insert(lines, line)
-        table.insert(impacts, impact)
+    -- Watch for hits via MainEvent OnClientEvent
+    -- The game sends hit confirmations back to the client
+    local mainEvent = game:GetService("ReplicatedStorage"):FindFirstChild("MainEvent")
+    if mainEvent then
+        mainEvent.OnClientEvent:Connect(function(...)
+            local args = {...}
+            -- Check for hit/damage callbacks
+            for _, v in pairs(args) do
+                if type(v) == "string" then
+                    local lower = v:lower()
+                    if lower:find("hit") or lower:find("damage") or lower:find("kill") then
+                        if getgenv().BDStats.pendingShot > 0 and os.clock() - getgenv().BDStats.pendingShot < 2 then
+                            getgenv().BDStats.hits = getgenv().BDStats.hits + 1
+                            getgenv().BDStats.lastHit = true
+                            getgenv().BDStats.lastReason = "HIT"
+                            getgenv().BDStats.pendingShot = 0
+                        end
+                    end
+                end
+            end
+        end)
     end
 
-    -- Track shots from FireServer hook
-    -- getgenv().BulletDebugShots = {{origin=Vector3, hitpos=Vector3, time=number}, ...}
-
-    RunService.RenderStepped:Connect(function()
+    -- Also watch for desync messages from the print hook
+    -- (the resolver already hooks print, so we watch for the side effect)
+    RunService.Heartbeat:Connect(function()
         local now = os.clock()
-        local fadeTime = getgenv().BulletDebugFadeTime or 3
-        local shots = getgenv().BulletDebugShots or {}
-        local enabled = getgenv().BulletDebugEnabled
+        local stats = getgenv().BDStats
 
-        -- Clean up expired shots
-        while #shots > 0 and now - shots[1].time > fadeTime do
-            table.remove(shots, 1)
-        end
+        -- If we fired a shot and haven't gotten a hit within 0.5s, count as miss
+        if stats.pendingShot > 0 and now - stats.pendingShot > 0.5 then
+            stats.misses = stats.misses + 1
+            stats.lastHit = false
 
-        -- Render each shot
-        for i = 1, maxShots do
-            local shot = shots[i]
-            if shot and enabled then
-                local age = now - shot.time
-                local alpha = 1 - (age / fadeTime)
-
-                -- World to screen for line
-                local originScreen, originOnScreen = Camera:WorldToScreenPoint(shot.origin)
-                local hitScreen, hitOnScreen = Camera:WorldToScreenPoint(shot.hitpos)
-
-                if originOnScreen and hitOnScreen then
-                    lines[i].Visible = true
-                    lines[i].From = Vector2.new(originScreen.X, originScreen.Y)
-                    lines[i].To = Vector2.new(hitScreen.X, hitScreen.Y)
-                    lines[i].Transparency = 0.3 + (0.7 * (1 - alpha))
-                    lines[i].Color = shot.hit and Color3.fromRGB(255, 50, 50) or Color3.fromRGB(255, 255, 0)
-
-                    impacts[i].Visible = true
-                    impacts[i].Position = Vector2.new(hitScreen.X, hitScreen.Y)
-                    impacts[i].Transparency = 0.4 + (0.6 * (1 - alpha))
-                    impacts[i].Color = shot.hit and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(255, 165, 0)
-                    impacts[i].Radius = 4 + (6 * (1 - alpha))
-                else
-                    lines[i].Visible = false
-                    impacts[i].Visible = false
-                end
+            -- Classify miss reason
+            local lastDesync = getgenv().BDLastDesyncMsg or 0
+            if now - lastDesync < 0.7 then
+                stats.lastReason = "DESYNC"
+                stats.desyncMisses = stats.desyncMisses + 1
+            elseif getgenv().AntiAimEnabled and getgenv().CustomResolverEnabled then
+                stats.lastReason = "RESOLVER"
+                stats.resolverMisses = stats.resolverMisses + 1
             else
-                lines[i].Visible = false
-                impacts[i].Visible = false
+                stats.lastReason = "MISS"
             end
+
+            stats.pendingShot = 0
         end
 
-        -- Trim shots list to maxShots
-        while #shots > maxShots do
-            table.remove(shots, 1)
+        -- Update HUD position (center top)
+        hudText.Position = Vector2.new(Camera.ViewportSize.X / 2, 20)
+
+        -- Build display text
+        local enabled = getgenv().BulletDebugEnabled
+        hudText.Visible = enabled
+
+        if enabled and stats.fired > 0 then
+            local parts = {}
+
+            if getgenv().BulletDebugShowFired then
+                table.insert(parts, "Shots: " .. tostring(stats.fired))
+            end
+            if getgenv().BulletDebugShowHit then
+                table.insert(parts, "Hits: " .. tostring(stats.hits))
+            end
+            if getgenv().BulletDebugShowMiss then
+                table.insert(parts, "Misses: " .. tostring(stats.misses))
+            end
+            if getgenv().BulletDebugShowAccuracy and stats.fired > 0 then
+                local acc = math.floor((stats.hits / stats.fired) * 100)
+                table.insert(parts, "Accuracy: " .. tostring(acc) .. "%")
+            end
+            if getgenv().BulletDebugShowReason and stats.lastReason ~= "" then
+                local color = stats.lastHit and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(255, 100, 100)
+                table.insert(parts, "Last: " .. stats.lastReason)
+                hudText.Color = color
+            else
+                hudText.Color = Color3.fromRGB(255, 255, 255)
+            end
+
+            hudText.Text = table.concat(parts, "  |  ")
+        else
+            hudText.Text = enabled and "No shots fired" or ""
         end
     end)
 end)
@@ -1913,18 +1956,54 @@ do
         Flag = "BulletDebugEnabled",
         Callback = function(v)
             getgenv().BulletDebugEnabled = v
+            -- Reset stats when toggling off
+            if not v then
+                getgenv().BDStats = {
+                    fired = 0, hits = 0, misses = 0,
+                    desyncMisses = 0, resolverMisses = 0,
+                    lastHit = false, lastReason = "", pendingShot = 0,
+                }
+            end
         end
     })
 
-    DebugSect:AddSlider({
-        Name = "Debug Fade Time",
-        Flag = "BulletDebugFadeTime",
-        Default = 3,
-        Min = 1,
-        Max = 10,
-        Round = 1,
+    DebugSect:AddToggle({
+        Name = "Show Fired",
+        Flag = "BulletDebugShowFired",
         Callback = function(v)
-            getgenv().BulletDebugFadeTime = v
+            getgenv().BulletDebugShowFired = v
+        end
+    })
+
+    DebugSect:AddToggle({
+        Name = "Show Hits",
+        Flag = "BulletDebugShowHit",
+        Callback = function(v)
+            getgenv().BulletDebugShowHit = v
+        end
+    })
+
+    DebugSect:AddToggle({
+        Name = "Show Misses",
+        Flag = "BulletDebugShowMiss",
+        Callback = function(v)
+            getgenv().BulletDebugShowMiss = v
+        end
+    })
+
+    DebugSect:AddToggle({
+        Name = "Show Accuracy",
+        Flag = "BulletDebugShowAccuracy",
+        Callback = function(v)
+            getgenv().BulletDebugShowAccuracy = v
+        end
+    })
+
+    DebugSect:AddToggle({
+        Name = "Show Miss Reason",
+        Flag = "BulletDebugShowReason",
+        Callback = function(v)
+            getgenv().BulletDebugShowReason = v
         end
     })
 
