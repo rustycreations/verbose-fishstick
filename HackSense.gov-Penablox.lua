@@ -68,7 +68,7 @@ local function checkifsupported()
 
         Notification:Notify({
             Title = "HackSense.gov",
-            Content = "Executor fully supported! Loading UI...",
+            Content = "Executor fully supported! Loading UI... (" .. (getgenv().IsMobile and "Mobile" or "PC") .. ")",
             Duration = 3,
             Icon = "check"
         })
@@ -119,6 +119,14 @@ if getgenv().HackSenseIsLoaded == true then
 
     warn("HackSense.gov is already loaded!")
     return
+end
+
+-- Device auto-detection: PC vs Mobile
+local UserInputService = game:GetService("UserInputService")
+getgenv().IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+-- Edge case: some tablets have both touch + keyboard. Treat as PC.
+if UserInputService.TouchEnabled and UserInputService.KeyboardEnabled then
+    getgenv().IsMobile = false
 end
 
 -- globals
@@ -1166,7 +1174,9 @@ task.spawn(function()
         end
 
         -- Update HUD position (center top)
-        hudText.Position = Vector2.new(Camera.ViewportSize.X / 2, 20)
+        -- On mobile, offset down to avoid being hidden behind top roblox UI bars
+        local yOffset = getgenv().IsMobile and 50 or 20
+        hudText.Position = Vector2.new(Camera.ViewportSize.X / 2, yOffset)
 
         -- Build display text
         local enabled = getgenv().BulletDebugEnabled
@@ -1509,7 +1519,9 @@ task.spawn(function()
 end)
 
 -- Mobile touch button to open clickgui (since Insert key doesn't exist on mobile)
+-- Only create on mobile devices â€” PC users use the Insert key
 
+if getgenv().IsMobile then
 task.spawn(function()
     local CoreGui = game:GetService("CoreGui")
     local UserInputService = game:GetService("UserInputService")
@@ -1594,6 +1606,7 @@ task.spawn(function()
         end
     end)
 end)
+end -- end IsMobile check
 
 local RageMenu = Window:AddMenu({ Name = "Rage", Icon = "skull" })
 local AntiAimMenu = Window:AddMenu({ Name = "Anti Aim", Icon = "shield" })
