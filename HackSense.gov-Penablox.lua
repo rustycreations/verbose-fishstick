@@ -822,7 +822,7 @@ task.spawn(function()
             if tostring(self) == "MainEvent" and getgenv().RageBotEnabled then
                 if getgenv().RageBotMethod == "Event Hook" and checkspecificfunction("hookfunction") then
                     local action = decryptstring(args[1])
-                    if action == "Shoot" or action == "MeleeHit" then
+                    if action == "Shoot" then
                         getgenv().LagPeakShotTime = os.clock()
 
                         -- Bullet debug: track shot fired
