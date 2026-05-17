@@ -1230,6 +1230,9 @@ task.spawn(function()
     end
 
     -- Send a melee hit to the server
+    -- Args must match the Shoot/MeleeHit format the game expects:
+    -- [1]=encrypted action, [2]=target, [3]=encrypted hitpart,
+    -- [4]=?, [5]=distance, [6]=origin, [7]=hitpos, [8]=encrypted nil, [9]=encrypted nil
     local function sendMeleeHit(target)
         local mainEvent = game:GetService("ReplicatedStorage"):FindFirstChild("MainEvent")
         if not mainEvent then return false end
@@ -1248,15 +1251,21 @@ task.spawn(function()
         end
 
         local hitPos = hitPart and hitPart.Position or tHRP.Position
+        local myRoot = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+        local origin = myRoot and myRoot.Position or Vector3.new(0, 0, 0)
+        local dist = myRoot and (myRoot.Position - hitPos).Magnitude or 0
 
         pcall(function()
             mainEvent:FireServer(
                 encryptstring("MeleeHit"),
                 target,
                 encryptstring(hitPartName),
-                0, -- distance (not critical for melee)
-                Vector3.new(0, 0, 0), -- origin
-                hitPos -- hit position
+                nil, -- args[4] unknown field
+                dist, -- distance
+                origin, -- origin position
+                hitPos, -- hit position
+                encryptstring("nil"),
+                encryptstring("nil")
             )
         end)
 
@@ -1292,19 +1301,18 @@ task.spawn(function()
         local origCF = myRoot.CFrame
 
         -- Teleport directly to the target's position
-        -- Keep our own rotation so we don't rubberband
-        local teleportCF = CFrame.new(tHRP.Position) * CFrame.Angles(0, math.rad(0), 0)
+        local teleportCF = CFrame.new(tHRP.Position)
 
         pcall(function()
             myRoot.CFrame = teleportCF
         end)
 
-        -- Send the melee hit after a tiny delay (let the server register the new position)
-        task.delay(0.05, function()
+        -- Wait longer for the server to register the position change (0.1s)
+        task.delay(0.1, function()
             sendMeleeHit(target)
 
-            -- Teleport back after the stab
-            task.delay(0.08, function()
+            -- Stay on the player a bit longer for damage to register (0.15s)
+            task.delay(0.15, function()
                 pcall(function()
                     if myRoot and myRoot.Parent then
                         myRoot.CFrame = origCF
