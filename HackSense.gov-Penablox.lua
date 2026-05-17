@@ -1160,6 +1160,154 @@ task.spawn(function()
     end)
 end)
 
+-- KnifeAura: auto-tp knife kills
+-- When you have a knife/melee equipped, teleports to nearest player,
+-- stabs them, then teleports back. Repeats on cooldown.
+
+if not getgenv().KnifeAuraEnabled then
+    getgenv().KnifeAuraEnabled = false
+end
+if not getgenv().KnifeAuraRange then
+    getgenv().KnifeAuraRange = 25
+end
+if not getgenv().KnifeAuraCooldown then
+    getgenv().KnifeAuraCooldown = 0.4
+end
+
+task.spawn(function()
+    local plr = game:GetService("Players").LocalPlayer
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+
+    -- Knife detection: check if the player has a melee/knife tool equipped
+    local function hasKnifeEquipped()
+        local char = plr.Character
+        if not char then return false end
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return false end
+        local tool = humanoid.Tool and humanoid.Tool.Parent
+        if not tool then return false end
+        -- Check if the tool is a melee weapon (knife, shank, etc.)
+        local toolName = tool.Name:lower()
+        return tool:IsA("Tool") and (
+            toolName:find("knife") or toolName:find("shank") or
+            toolName:find("melee") or toolName:find("blade") or
+            toolName:find("dagger") or toolName:find("sword") or
+            toolName:find("machete") or toolName:find("axe") or
+            toolName:find("bat") or toolName:find("hammer")
+        )
+    end
+
+    -- Find nearest alive player within range
+    local function getNearestTarget(maxRange)
+        local myRoot = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+        if not myRoot then return nil end
+
+        local best, bestDist = nil, maxRange or getgenv().KnifeAuraRange or 25
+
+        for _, target in pairs(Players:GetPlayers()) do
+            if target == plr then continue end
+            local tChar = target.Character
+            if not tChar then continue end
+            local tHRP = tChar:FindFirstChild("HumanoidRootPart")
+            local tHum = tChar:FindFirstChildOfClass("Humanoid")
+            if not tHRP or not tHum or tHum.Health <= 0 then continue end
+
+            local dist = (tHRP.Position - myRoot.Position).Magnitude
+            if dist < bestDist then
+                bestDist = dist
+                best = target
+            end
+        end
+        return best
+    end
+
+    -- Send a melee hit to the server
+    local function sendMeleeHit(target)
+        local mainEvent = game:GetService("ReplicatedStorage"):FindFirstChild("MainEvent")
+        if not mainEvent then return false end
+
+        local tChar = target.Character
+        if not tChar then return false end
+        local tHRP = tChar:FindFirstChild("HumanoidRootPart")
+        if not tHRP then return false end
+
+        -- Determine which body part to aim at
+        local hitPartName = "Head"
+        local hitPart = tChar:FindFirstChild("Head")
+        if not hitPart then
+            hitPartName = "Torso"
+            hitPart = tChar:FindFirstChild("Torso") or tChar:FindFirstChild("UpperTorso")
+        end
+
+        local hitPos = hitPart and hitPart.Position or tHRP.Position
+
+        pcall(function()
+            mainEvent:FireServer(
+                encryptstring("MeleeHit"),
+                target,
+                encryptstring(hitPartName),
+                0, -- distance (not critical for melee)
+                Vector3.new(0, 0, 0), -- origin
+                hitPos -- hit position
+            )
+        end)
+
+        return true
+    end
+
+    local isAttacking = false
+    local lastAttackTime = 0
+
+    RunService.Heartbeat:Connect(function()
+        if not getgenv().KnifeAuraEnabled then return end
+        if not hasKnifeEquipped() then return end
+        if isAttacking then return end
+
+        local now = os.clock()
+        local cooldown = getgenv().KnifeAuraCooldown or 0.4
+        if now - lastAttackTime < cooldown then return end
+
+        local target = getNearestTarget(getgenv().KnifeAuraRange or 25)
+        if not target then return end
+
+        local myChar = plr.Character
+        local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if not myRoot then return end
+
+        local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+        if not tHRP then return end
+
+        isAttacking = true
+        lastAttackTime = now
+
+        -- Save original position
+        local origCF = myRoot.CFrame
+
+        -- Teleport to target (offset slightly so we don't clip inside them)
+        local teleportCF = tHRP.CFrame * CFrame.new(0, 0, 3)
+
+        pcall(function()
+            myRoot.CFrame = teleportCF
+        end)
+
+        -- Send the melee hit after a tiny delay (let the server register the new position)
+        task.delay(0.05, function()
+            sendMeleeHit(target)
+
+            -- Teleport back after the stab
+            task.delay(0.08, function()
+                pcall(function()
+                    if myRoot and myRoot.Parent then
+                        myRoot.CFrame = origCF
+                    end
+                end)
+                isAttacking = false
+            end)
+        end)
+    end)
+end)
+
 -- Bullet Debug: shot stats HUD at top center
 -- Uses standard ScreenGui + TextLabel (works on ALL devices including mobile)
 -- Also hooks into the game's built-in bullet debug display if it exists
@@ -1945,6 +2093,39 @@ do
         end
     })
 
+    ExploitSect:AddToggle({
+        Name = "KnifeAura",
+        Flag = "KnifeAuraEnabled",
+        Risky = true,
+        Callback = function(v)
+            getgenv().KnifeAuraEnabled = v
+        end
+    })
+
+    ExploitSect:AddSlider({
+        Name = "KnifeAura Range",
+        Flag = "KnifeAuraRange",
+        Default = 25,
+        Min = 5,
+        Max = 60,
+        Round = 0,
+        Callback = function(v)
+            getgenv().KnifeAuraRange = v
+        end
+    })
+
+    ExploitSect:AddSlider({
+        Name = "KnifeAura Cooldown",
+        Flag = "KnifeAuraCooldown",
+        Default = 0.4,
+        Min = 0.1,
+        Max = 2,
+        Round = 1,
+        Callback = function(v)
+            getgenv().KnifeAuraCooldown = v
+        end
+    })
+
     -- Credits to cathak for this, thx for finding and decompiling ":3"
 
     -- ts is really long
@@ -2312,7 +2493,7 @@ do
     })
 
     Exploits:AddToggle({
-        Name = "NoClip",
+        Name = "NoClip (Unsafe)",
         Flag = "NoClipEnabled",
         Risky = true,
         Callback = function(v)
