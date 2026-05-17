@@ -1275,7 +1275,7 @@ task.spawn(function()
         local cooldown = getgenv().KnifeAuraCooldown or 0.4
         if now - lastAttackTime < cooldown then return end
 
-        local target = getNearestTarget(getgenv().KnifeAuraRange or 25)
+        local target = getNearestTarget(math.clamp(getgenv().KnifeAuraRange or 25, 1, 30))
         if not target then return end
 
         local myChar = plr.Character
@@ -1291,8 +1291,9 @@ task.spawn(function()
         -- Save original position
         local origCF = myRoot.CFrame
 
-        -- Teleport to target (offset slightly so we don't clip inside them)
-        local teleportCF = tHRP.CFrame * CFrame.new(0, 0, 3)
+        -- Teleport directly to the target's position
+        -- Keep our own rotation so we don't rubberband
+        local teleportCF = CFrame.new(tHRP.Position) * CFrame.Angles(0, math.rad(0), 0)
 
         pcall(function()
             myRoot.CFrame = teleportCF
@@ -2114,7 +2115,7 @@ do
         Flag = "KnifeAuraRange",
         Default = 25,
         Min = 5,
-        Max = 60,
+        Max = 30,
         Round = 0,
         Callback = function(v)
             getgenv().KnifeAuraRange = v
