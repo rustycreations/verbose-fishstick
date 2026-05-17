@@ -1187,15 +1187,20 @@ task.spawn(function()
         if not humanoid then return false end
         local tool = humanoid.Tool and humanoid.Tool.Parent
         if not tool then return false end
-        -- Check if the tool is a melee weapon (knife, shank, etc.)
+        if not tool:IsA("Tool") then return false end
+        -- Check if the tool is a melee weapon
         local toolName = tool.Name:lower()
-        return tool:IsA("Tool") and (
-            toolName:find("knife") or toolName:find("shank") or
+        return toolName:find("knife") or toolName:find("shank") or
             toolName:find("melee") or toolName:find("blade") or
             toolName:find("dagger") or toolName:find("sword") or
             toolName:find("machete") or toolName:find("axe") or
-            toolName:find("bat") or toolName:find("hammer")
-        )
+            toolName:find("bat") or toolName:find("hammer") or
+            toolName:find("m9") or toolName:find("m4") or
+            toolName:find("karambit") or toolName:find("bayonet") or
+            toolName:find("combat") or toolName:find("tactical") or
+            toolName:find("stake") or toolName:find("pipe") or
+            toolName:find("crowbar") or toolName:find("cleaver") or
+            toolName:find("fists") or toolName:find("punch")
     end
 
     -- Find nearest alive player within range
