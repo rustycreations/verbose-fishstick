@@ -1180,27 +1180,29 @@ task.spawn(function()
     local RunService = game:GetService("RunService")
 
     -- Knife detection: check if the player has a melee/knife tool equipped
+    -- Equipped tools are children of the Character model, NOT humanoid.Tool
     local function hasKnifeEquipped()
         local char = plr.Character
         if not char then return false end
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if not humanoid then return false end
-        local tool = humanoid.Tool and humanoid.Tool.Parent
-        if not tool then return false end
-        if not tool:IsA("Tool") then return false end
-        -- Check if the tool is a melee weapon
-        local toolName = tool.Name:lower()
-        return toolName:find("knife") or toolName:find("shank") or
-            toolName:find("melee") or toolName:find("blade") or
-            toolName:find("dagger") or toolName:find("sword") or
-            toolName:find("machete") or toolName:find("axe") or
-            toolName:find("bat") or toolName:find("hammer") or
-            toolName:find("m9") or toolName:find("m4") or
-            toolName:find("karambit") or toolName:find("bayonet") or
-            toolName:find("combat") or toolName:find("tactical") or
-            toolName:find("stake") or toolName:find("pipe") or
-            toolName:find("crowbar") or toolName:find("cleaver") or
-            toolName:find("fists") or toolName:find("punch")
+        for _, tool in pairs(char:GetChildren()) do
+            if tool:IsA("Tool") then
+                local toolName = tool.Name:lower()
+                if toolName:find("knife") or toolName:find("shank") or
+                    toolName:find("melee") or toolName:find("blade") or
+                    toolName:find("dagger") or toolName:find("sword") or
+                    toolName:find("machete") or toolName:find("axe") or
+                    toolName:find("bat") or toolName:find("hammer") or
+                    toolName:find("m9") or toolName:find("m4") or
+                    toolName:find("karambit") or toolName:find("bayonet") or
+                    toolName:find("combat") or toolName:find("tactical") or
+                    toolName:find("stake") or toolName:find("pipe") or
+                    toolName:find("crowbar") or toolName:find("cleaver") or
+                    toolName:find("fists") or toolName:find("punch") then
+                    return true
+                end
+            end
+        end
+        return false
     end
 
     -- Find nearest alive player within range
