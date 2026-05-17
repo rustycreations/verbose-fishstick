@@ -968,6 +968,97 @@ task.spawn(function()
     end)
 end)
 
+-- NoClip: walk through walls
+-- Uses CanCollide = false on all body parts every frame
+-- Plus aggressively scans getgc for noclip violation counters to reset them
+
+if not getgenv().NoClipEnabled then
+    getgenv().NoClipEnabled = false
+end
+
+task.spawn(function()
+    local plr = game:GetService("Players").LocalPlayer
+    local RunService = game:GetService("RunService")
+
+    local function noclipChar(char)
+        if not char then return end
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                pcall(function() part.CanCollide = false end)
+            end
+        end
+    end
+
+    -- Main noclip loop
+    RunService.Stepped:Connect(function()
+        if not getgenv().NoClipEnabled then return end
+        local char = plr.Character
+        if char then
+            noclipChar(char)
+        end
+    end)
+
+    -- Re-apply when character spawns
+    plr.CharacterAdded:Connect(function(char)
+        char:WaitForChild("HumanoidRootPart")
+        task.wait(0.5)
+        if getgenv().NoClipEnabled then
+            noclipChar(char)
+        end
+    end)
+end)
+
+-- NoClip anti-detection: scan getgc for noclip violation counters
+-- and reset/nullify them every frame so the server never accumulates
+-- enough violations to kick you
+
+task.spawn(function()
+    local function resetNoclipCounters()
+        pcall(function()
+            for _, v in pairs(getgc(true)) do
+                if type(v) == "table" then
+                    -- Look for common noclip detection counter/table names
+                    -- Games typically count how many times you're inside a part
+                    -- and kick after N violations
+                    if rawget(v, "NoClipViolations") then
+                        v.NoClipViolations = 0
+                    end
+                    if rawget(v, "noclipViolations") then
+                        v.noclipViolations = 0
+                    end
+                    if rawget(v, "NoclipCount") then
+                        v.NoclipCount = 0
+                    end
+                    if rawget(v, "noclip_count") then
+                        v.noclip_count = 0
+                    end
+                    if rawget(v, "clipCount") then
+                        v.clipCount = 0
+                    end
+                    if rawget(v, "wallPenCount") then
+                        v.wallPenCount = 0
+                    end
+                    -- Also look for threshold/timer fields that gate the kick
+                    if rawget(v, "NoclipThreshold") or rawget(v, "noclipThreshold") then
+                        v.NoclipThreshold = math.huge
+                        v.noclipThreshold = math.huge
+                    end
+                    if rawget(v, "NoClipKickThreshold") then
+                        v.NoClipKickThreshold = math.huge
+                    end
+                end
+            end
+        end)
+    end
+
+    -- Scan every 0.5s (don't need every frame, that's overkill)
+    while task.wait(0.5) do
+        if getgenv().NoClipEnabled then
+            resetNoclipCounters()
+        end
+    end
+end)
+
 -- LagPeak: choke position while shooting so enemies see you behind cover
 -- Uses a rolling buffer to grab your position from ~150ms BEFORE the shot
 -- so when you peek around a wall and the game auto-shoots, enemies see you behind cover
@@ -2217,6 +2308,28 @@ do
         Risky = true,
         Callback = function(v)
             getgenv().RemoveMathRandom = v
+        end
+    })
+
+    Exploits:AddToggle({
+        Name = "NoClip",
+        Flag = "NoClipEnabled",
+        Risky = true,
+        Callback = function(v)
+            getgenv().NoClipEnabled = v
+            -- Re-enable CanCollide on all parts when turning off
+            if not v then
+                pcall(function()
+                    local char = game:GetService("Players").LocalPlayer.Character
+                    if char then
+                        for _, part in pairs(char:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.CanCollide = true
+                            end
+                        end
+                    end
+                end)
+            end
         end
     })
 
