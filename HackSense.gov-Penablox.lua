@@ -818,11 +818,19 @@ task.spawn(function()
     local s,f = pcall(function()
         local oldFireServer
         oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, function(self, ...)
-            local args = {...}
+            -- Only intercept MainEvent Shoot for ragebot.
+            -- CRITICAL: Do NOT pack args with {...} for non-Shoot events!
+            -- Lua's {...} truncates at the first nil, which would mangle
+            -- MeleeHit and other events that have nil in their args.
+            -- Only pack args when we actually need to modify them (Shoot).
             if tostring(self) == "MainEvent" and getgenv().RageBotEnabled then
                 if getgenv().RageBotMethod == "Event Hook" and checkspecificfunction("hookfunction") then
-                    local action = decryptstring(args[1])
-                    if action == "Shoot" then
+                    local action = pcall(function()
+                        return decryptstring(({...})[1])
+                    end)
+                    if type(action) == "string" and action == "Shoot" then
+                        -- Pack args only for Shoot (we need to modify them)
+                        local args = {...}
                         getgenv().LagPeakShotTime = os.clock()
 
                         -- Bullet debug: track shot fired
@@ -890,11 +898,15 @@ task.spawn(function()
 
                             end
                         end
+
+                        return oldFireServer(self, unpack(args))
                     end
                 end
             end
 
-            return oldFireServer(self, unpack(args))
+            -- For ALL other events (MeleeHit, Reload, etc.), pass ... directly.
+            -- This preserves nil values in the middle of args that {...} would drop.
+            return oldFireServer(self, ...)
         end)
     end)
 end)
@@ -1872,7 +1884,7 @@ task.spawn(function()
 end)
 
 -- Mobile touch button to open clickgui (since Insert key doesn't exist on mobile)
--- Only create on mobile devices â€” PC users use the Insert key
+-- Only create on mobile devices — PC users use the Insert key
 
 if getgenv().IsMobile then
 task.spawn(function()
@@ -1923,7 +1935,7 @@ task.spawn(function()
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     if not dragging then
-                        -- It was a tap, not a drag â€” toggle menu
+                        -- It was a tap, not a drag — toggle menu
                         ToggleMenu()
                     end
                     dragging = false
@@ -2439,24 +2451,8 @@ do
         PrefixData[key] = newValue
     end})
 
-    ESP:AddToggle({
-        Name = "Prefix",
-        Flag = "PrefixEnabled",
-        Callback = function(v)
-
-            if v then
-                applyPrefix()
-            else
-                for _,v in pairs(getgc(true)) do
-                    if type(v) == table and v.Dev and v.AlphaTester and v.Booster then
-                        v.Dev.players[game:GetService("Players").LocalPlayer.UserId] = false
-                        break
-                    end
-                end
-            end
-
-        end
-    })
+    -- Prefix is always on for everyone
+    applyPrefix()
 
     ESP:AddColorPicker({
         Name = "Prefix Color",
