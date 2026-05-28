@@ -818,19 +818,11 @@ task.spawn(function()
     local s,f = pcall(function()
         local oldFireServer
         oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, function(self, ...)
-            -- Only intercept MainEvent Shoot for ragebot.
-            -- CRITICAL: Do NOT pack args with {...} for non-Shoot events!
-            -- Lua's {...} truncates at the first nil, which would mangle
-            -- MeleeHit and other events that have nil in their args.
-            -- Only pack args when we actually need to modify them (Shoot).
+            local args = {...}
             if tostring(self) == "MainEvent" and getgenv().RageBotEnabled then
                 if getgenv().RageBotMethod == "Event Hook" and checkspecificfunction("hookfunction") then
-                    local action = pcall(function()
-                        return decryptstring(({...})[1])
-                    end)
-                    if type(action) == "string" and action == "Shoot" then
-                        -- Pack args only for Shoot (we need to modify them)
-                        local args = {...}
+                    local action = decryptstring(args[1])
+                    if action == "Shoot" then
                         getgenv().LagPeakShotTime = os.clock()
 
                         -- Bullet debug: track shot fired
@@ -898,15 +890,11 @@ task.spawn(function()
 
                             end
                         end
-
-                        return oldFireServer(self, unpack(args))
                     end
                 end
             end
 
-            -- For ALL other events (MeleeHit, Reload, etc.), pass ... directly.
-            -- This preserves nil values in the middle of args that {...} would drop.
-            return oldFireServer(self, ...)
+            return oldFireServer(self, unpack(args))
         end)
     end)
 end)
