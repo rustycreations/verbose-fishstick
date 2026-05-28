@@ -2451,8 +2451,24 @@ do
         PrefixData[key] = newValue
     end})
 
-    -- Prefix is always on for everyone
-    applyPrefix()
+    ESP:AddToggle({
+        Name = "Prefix",
+        Flag = "PrefixEnabled",
+        Callback = function(v)
+
+            if v then
+                applyPrefix()
+            else
+                for _,v in pairs(getgc(true)) do
+                    if type(v) == table and v.Dev and v.AlphaTester and v.Booster then
+                        v.Dev.players[game:GetService("Players").LocalPlayer.UserId] = false
+                        break
+                    end
+                end
+            end
+
+        end
+    })
 
     ESP:AddColorPicker({
         Name = "Prefix Color",
