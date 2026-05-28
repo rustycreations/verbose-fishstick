@@ -779,7 +779,13 @@ task.spawn(function()
 
 
         RunService.Heartbeat:Connect(function()
-            if not getgenv().CustomResolverEnabled or (getgenv().CustomResolverMode ~= "HackSense" and getgenv().CustomResolverMode ~= "Divine") then return end
+            if not getgenv().CustomResolverEnabled then return end
+
+            -- Testing mode: uses prediction + server-aware position compensation
+            -- instead of yaw manipulation. Handled in the FireServer hook.
+            if getgenv().CustomResolverMode == "Testing" then return end
+
+            if (getgenv().CustomResolverMode ~= "HackSense" and getgenv().CustomResolverMode ~= "Divine") then return end
 
             if not getgenv().DivineLuaCorrection then
                 return
@@ -798,6 +804,103 @@ task.spawn(function()
         end)
     end
 end)
+
+-- Testing Resolver: prediction + server-aware position compensation
+-- Tracks target velocity, predicts where they'll be when the shot arrives,
+-- and uses the server's perceived position (not client) for distance calcs.
+-- This is especially important with LagPeak since the client is hiding
+-- behind cover while the server thinks you're peeking.
+
+if not getgenv().TestingResolver then
+    getgenv().TestingResolver = {
+        Enabled = false,
+        PredictionTick = 3,     -- predict N ticks ahead (~50ms per tick at 20Hz)
+        MultiShot = true,       -- send the shot 2x with slightly offset hitpos
+        MaxHitDist = 300,       -- clamp max believable distance
+        VelocitySamples = {},   -- per-player velocity history
+    }
+end
+
+task.spawn(function()
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local LocalPlayer = Players.LocalPlayer
+
+    -- Track target velocity for prediction
+    RunService.Heartbeat:Connect(function()
+        for _, plr in pairs(Players:GetPlayers()) do
+            if plr == LocalPlayer then continue end
+            local char = plr.Character
+            if not char then continue end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hrp then continue end
+
+            local entry = getgenv().TestingResolver.VelocitySamples[plr]
+            if not entry then
+                entry = { lastPos = hrp.Position, lastTime = os.clock(), velocity = Vector3.zero }
+                getgenv().TestingResolver.VelocitySamples[plr] = entry
+            else
+                local now = os.clock()
+                local dt = now - entry.lastTime
+                if dt > 0.01 then -- avoid div by zero
+                    local newVel = (hrp.Position - entry.lastPos) / dt
+                    -- Smooth velocity (exponential moving average)
+                    entry.velocity = entry.velocity:Lerp(newVel, 0.3)
+                end
+                entry.lastPos = hrp.Position
+                entry.lastTime = now
+            end
+        end
+    end)
+end)
+
+-- Returns the predicted position of a target N ticks ahead
+function GetPredictedPosition(target, ticks)
+    local samples = getgenv().TestingResolver.VelocitySamples
+    local entry = samples[target]
+    if not entry then
+        -- No data yet, return current position
+        local hrp = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+        return hrp and hrp.Position or nil
+    end
+
+    local hrp = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+
+    local tickDuration = 0.05 -- ~50ms per network tick
+    local predTime = (ticks or getgenv().TestingResolver.PredictionTick or 3) * tickDuration
+    local predicted = hrp.Position + entry.velocity * predTime
+
+    return predicted
+end
+
+-- Returns the server's perceived position of the local player.
+-- When LagPeak is active, the server thinks we're at a different position.
+function GetServerPerceivedPosition()
+    local myRoot = game:GetService("Players").LocalPlayer.Character
+    myRoot = myRoot and myRoot:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+
+    local lagPeakEnabled = getgenv().LagPeakEnabled
+    local lagPeakShotTime = getgenv().LagPeakShotTime or 0
+    local lagPeakDuration = getgenv().LagPeakDuration or 0.5
+
+    if lagPeakEnabled and lagPeakShotTime > 0 and (os.clock() - lagPeakShotTime < lagPeakDuration) then
+        -- LagPeak is active â€” the server sees us at the PRE-PEEK position.
+        -- The real shot origin that the server knows about is where we WERE
+        -- before peeking. The client is at the peek position but the server
+        -- still thinks we're behind cover.
+        -- We need to use the REAL current client position as origin because
+        -- that's where the server replicated us to when we actually fired.
+        -- The game's shoot handler fires from client position, so the server
+        -- should have the peek position by now (network replication).
+        -- Return nil to let the caller use actual client position.
+        return nil
+    end
+
+    -- Not in LagPeak â€” server sees us where we are
+    return myRoot.Position
+end
 
 -- forcehit method by hooking the event, changing the hit part and hitpos, and then sending it to the server, it can miss sometimes because of how the game handles hit detection.
 
@@ -855,7 +958,63 @@ task.spawn(function()
 
                                 args[3] = encryptstring(dmgpart)
 
-                                if AutoPart then
+                                -- ========== TESTING RESOLVER MODE ==========
+                                -- Uses velocity prediction + server-aware distance
+                                -- to fix "hit but no damage" especially with LagPeak
+                                local isTesting = getgenv().CustomResolverEnabled
+                                    and getgenv().CustomResolverMode == "Testing"
+
+                                if isTesting then
+                                    -- Use predicted position instead of current
+                                    local predictedPos = GetPredictedPosition(target)
+                                    local hitPos = predictedPos or target.Character[HitPos].Position
+
+                                    -- Clamp to max believable distance
+                                    local maxDist = getgenv().TestingResolver.MaxHitDist or 300
+
+                                    -- Use server-aware origin
+                                    local serverOrigin = GetServerPerceivedPosition()
+                                    local origin = serverOrigin or (typeof(args[6]) == "Vector3" and args[6])
+                                        or (game:GetService("Players").LocalPlayer.Character
+                                            and game:GetService("Players").LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                                            and game:GetService("Players").LocalPlayer.Character.HumanoidRootPart.Position)
+                                        or Vector3.new(0, 0, 0)
+
+                                    local rawDist = (origin - hitPos).Magnitude
+                                    local dist = math.clamp(rawDist, 0, maxDist)
+
+                                    args[5] = dist
+                                    args[6] = origin
+                                    args[7] = hitPos
+                                    args[8] = encryptstring("nil")
+                                    args[9] = encryptstring("nil")
+
+                                    -- Multi-shot: send a second shot with slightly offset hitpos
+                                    -- to increase the chance of server acceptance
+                                    if getgenv().TestingResolver.MultiShot then
+                                        local spread = Vector3.new(
+                                            math.random(-30, 30) / 100,
+                                            math.random(-10, 10) / 100,
+                                            math.random(-30, 30) / 100
+                                        )
+                                        local secondHit = hitPos + spread
+
+                                        local secondArgs = {}
+                                        for i, v in pairs(args) do secondArgs[i] = v end
+                                        secondArgs[7] = secondHit
+                                        secondArgs[5] = math.clamp((origin - secondHit).Magnitude, 0, maxDist)
+
+                                        -- Fire the duplicate shot with a tiny delay
+                                        task.spawn(function()
+                                            task.wait(0.02)
+                                            pcall(function()
+                                                oldFireServer(self, unpack(secondArgs))
+                                            end)
+                                        end)
+                                    end
+
+                                elseif AutoPart then
+                                    -- Default (non-Testing) path with AutoPart
                                     local foolishpart = GetPartNameAtPos(AutoPart)
                                     local tuffpart = target.Character:FindFirstChild(foolishpart)
 
@@ -878,15 +1037,13 @@ task.spawn(function()
                                     end
 
                                 else
+                                    -- Default path without AutoPart
                                     args[7] = target.Character[HitPos].Position
 
                                     if typeof(args[6]) == "Vector3" then
                                         args[5] = (args[6] - target.Character[HitPos].Position).Magnitude
                                     end
                                 end
-
-                                args[8] = encryptstring("nil")
-                                args[9] = encryptstring("nil")
 
                             end
                         end
@@ -1872,7 +2029,7 @@ task.spawn(function()
 end)
 
 -- Mobile touch button to open clickgui (since Insert key doesn't exist on mobile)
--- Only create on mobile devices â€” PC users use the Insert key
+-- Only create on mobile devices Ã¢â‚¬â€ PC users use the Insert key
 
 if getgenv().IsMobile then
 task.spawn(function()
@@ -1923,7 +2080,7 @@ task.spawn(function()
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     if not dragging then
-                        -- It was a tap, not a drag â€” toggle menu
+                        -- It was a tap, not a drag Ã¢â‚¬â€ toggle menu
                         ToggleMenu()
                     end
                     dragging = false
@@ -1990,13 +2147,15 @@ do
     MainRage:AddDropdown({
         Name = "Resolver Mode",
         Flag = "CustomResolverMode",
-        Values = {"HackSense", "Divine"},
+        Values = {"HackSense", "Divine", "Testing"},
         Default = "None",
         Callback = function(v)
             getgenv().CustomResolverMode = v
 
             if v == "HackSense" or v == "Divine" then
                 getgenv().DivineLuaCorrection = v
+            elseif v == "Testing" then
+                getgenv().DivineLuaCorrection = true
             else
                 getgenv().DivineLuaCorrection = false
             end
@@ -2055,6 +2214,40 @@ do
         Default = "Head",
         Callback = function(v)
             getgenv().RageBotHitPart = v
+        end
+    })
+
+    -- Testing Resolver settings
+    ExtaSect:AddSlider({
+        Name = "Prediction Ticks",
+        Flag = "TestingPredTick",
+        Default = 3,
+        Min = 0,
+        Max = 10,
+        Round = 0,
+        Callback = function(v)
+            getgenv().TestingResolver.PredictionTick = v
+        end
+    })
+
+    ExtaSect:AddToggle({
+        Name = "Multi-Shot",
+        Flag = "TestingMultiShot",
+        Default = true,
+        Callback = function(v)
+            getgenv().TestingResolver.MultiShot = v
+        end
+    })
+
+    ExtaSect:AddSlider({
+        Name = "Max Hit Distance",
+        Flag = "TestingMaxDist",
+        Default = 300,
+        Min = 50,
+        Max = 1000,
+        Round = 0,
+        Callback = function(v)
+            getgenv().TestingResolver.MaxHitDist = v
         end
     })
 
